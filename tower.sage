@@ -359,7 +359,6 @@ def jet_check_safe(F_sr, pts_xy, m0=0):
         print(f" [JET] Substitution failed: {e}")
         print(f" [JET] F_sr variables: {proto.variables()}")
         raise
-        return
 
     # Expand the substituted expression
     expr = expr.expand()
@@ -372,7 +371,6 @@ def jet_check_safe(F_sr, pts_xy, m0=0):
     except Exception as e:
         print(f" [JET] Taylor expansion failed: {e}")
         raise
-        return
 
     eqs = []
     if c0 != 0:
@@ -391,7 +389,6 @@ def jet_check_safe(F_sr, pts_xy, m0=0):
     except Exception as e:
         print(f" [JET] solve failed: {e}")
         raise
-        return
 
     if not sol:
         print(" [JET] obstruction: no local lift at this point")
@@ -497,10 +494,6 @@ def build_multiple_fibrations(fx_PR, pts_xy, num_fibrations, max_steps=3,
     finally:
         # Restore original setting
         NUM_ANCHOR_POINTS = original_num_anchors
-
-if __name__ == '__main__':
-    pass
-    #main() # only for testing
 
 def print_consensus_effectiveness(consensus_stats, cumulative_stats):
     """
@@ -1492,7 +1485,7 @@ def check_fibration_step(step, prev_fx=None, layer_index=None):
                 parent = r_expr.parent()
                 gens = parent.gens() if hasattr(parent, "gens") else []
                 gen_names = [str(g) for g in gens]
-            except Exception:
+            except AttributeError:   # plain python constant: no parent(), no generators
                 gen_names = []
 
             assert 'x' not in gen_names, (
@@ -1940,15 +1933,16 @@ def solve_for_Q(x_sym, y_sym, base_pts, degQ, constraints=None, derivative_const
     except (TypeError, ValueError):
         Qx = sum(SR(solved_coeffs[i]) * x_sym**i for i in range(len(solved_coeffs)))
 
-    # Verify degree
+    # Verify degree.  Only failure to *obtain* a degree (symbolic result) is
+    # tolerated; an actual degree violation must raise.
     try:
         actual_deg = Qx.degree()
-        assert actual_deg <= degQ, \
-            f"solve_for_Q: result degree {actual_deg} exceeds requested {degQ}"
-        #print(f"[solve_for_Q] Result polynomial has degree {actual_deg}")
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         print("[solve_for_Q] Could not verify degree (symbolic result)")
         sys.stdout.flush()
+    else:
+        assert actual_deg <= degQ, \
+            f"solve_for_Q: result degree {actual_deg} exceeds requested {degQ}"
 
     return Qx, sol
 
@@ -2177,10 +2171,7 @@ def interpolate_Q_with_anchors(base_pts, degQ, x_sym, anchor_pts, seed_int=SEED_
             f"but have {len(all_pts)} (base: {len(base_pts)}, anchors: {len(anchor_pts)})"
         )
 
-    try:
-        field = field or QQ
-    except Exception:
-        field = QQ
+    field = field or QQ
 
     xs = [field(pt[0]) for pt in all_pts]
     ys = [field(pt[1]) for pt in all_pts]
@@ -2448,83 +2439,6 @@ def verify_y2_consistency_on_rail(tower, x1, m_vals):
     sys.stdout.flush()
 
 # === Entry point ===
-@PROFILE
-def main():
-    """Main execution function with comprehensive diagnostics."""
-    return # idk why claude put all this stuff down there
-    _report_mode()
-
-    print("="*70)
-    print("TOWER.SAGE - Fibration Tower Builder")
-    print("="*70)
-    sys.stdout.flush()
-
-    seed_int = 0
-
-    # Test curve: y² = x⁶ + 4x⁵ - 2x⁴ - 18x³ + x² + 38x + 25
-    COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(-2), QQ(-18), QQ(1), QQ(38), QQ(25)]
-    DATA_PTS_GENUS2 = [(QQ(0), QQ(5))]
-
-    PR = PolynomialRing(QQ, 'x')
-    x = PR.gen()
-
-    # Build polynomial f(x)
-    fx_PR = sum(c * x**e for e, c in reversed(list(enumerate(reversed(COEFFS_GENUS2)))))
-
-    # Verify initial polynomial
-    assert fx_PR.degree() == 6, f"Expected degree 6, got {fx_PR.degree()}"
-    print(f"Initial curve: y² = {fx_PR}")
-    print(f"Base point: {DATA_PTS_GENUS2[0]}")
-
-    # Verify base point is on curve
-    x0, y0 = DATA_PTS_GENUS2[0]
-    y0_squared = y0**2
-    f_at_x0 = fx_PR(x0)
-    assert y0_squared == f_at_x0, \
-        f"Base point not on curve: y₀²={y0_squared}, f(x₀)={f_at_x0}"
-
-    print(f"✓ Base point verified on curve")
-    sys.stdout.flush()
-
-    # Build tower
-    print("\n" + "="*70)
-    print("STARTING TOWER CONSTRUCTION")
-    print("="*70)
-    sys.stdout.flush()
-
-    try:
-        tower = iterate_tower(
-            fx_PR=fx_PR,
-            pts_xy=DATA_PTS_GENUS2[:1],
-            max_steps=2,
-            seed_int=seed_int,
-            verbose=True,
-            use_anchor_points=USE_ANCHOR_POINTS
-        )
-    except Exception as e:
-        print("\n" + "="*70)
-        print("TOWER CONSTRUCTION FAILED")
-        print("="*70)
-        print(f"Error: {e}")
-        sys.stdout.flush()
-        raise
-
-    # Display results
-    print("\n" + "="*70)
-    print("TOWER CONSTRUCTION COMPLETE")
-    print("="*70)
-
-    for i, step in enumerate(tower):
-        print(f"\n--- Layer {i+1} ---")
-        print(f"Info: {step['info']}")
-        print(f"Q(x): {step['Q_i']}")
-        print(f"r(m): {step['r_expr']}")
-        print(f"f_{i+1}(x,m): {step['f_i']}")
-        sys.stdout.flush()
-
-    print(f"\n✓ Successfully constructed {len(tower)} fibration layers")
-    sys.stdout.flush()
-
 @PROFILE
 def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, use_anchor_points=USE_ANCHOR_POINTS):
     """

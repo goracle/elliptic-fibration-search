@@ -1,12 +1,16 @@
+"""
+search_analysis.py: Statistical analysis, auto-tuning, and diagnostics.
+"""
 from .search_config import DEBUG, EXTRA_PRIME_MIN_R, EXTRA_PRIME_MAX_R, ROOTS_THRESHOLD, EXTRA_PRIME_TARGET_DENSITY, EXTRA_PRIME_MAX, EXTRA_PRIME_SKIP, TMAX, Counter
 from stats import *
 from itertools import combinations
 from sage.all import *
 from search_common import MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE
-
-"""
-search_analysis.py: Statistical analysis, auto-tuning, and diagnostics.
-"""
+# Explicit imports come after the star imports on purpose, so nothing pulled in
+# by `from stats import *` / `from sage.all import *` can shadow them.
+import math
+from .search_config import RationalReconstructionError
+from .rational_arithmetic import rational_reconstruct
 
 def estimate_prime_stats(prime_pool, precomputed_residues, sample_vecs, num_rhs=1):
     """Estimate average residue survival ratio r_p for each prime."""
@@ -291,14 +295,6 @@ def compute_residue_coverage_for_m(m_value, precomputed_residues, prime_pool, v_
         'per_prime': per_prime
     }
 
-"""
-search_analysis.py: Statistical analysis, auto-tuning, and diagnostics.
-"""
-
-# ... (Functions estimate_prime_stats, choose_extra_primes, expected_density,
-# _assert_rhs_consistency, _print_subset_productivity_stats, _batch_check_rationality
-# remain largely the same, focusing on utility and structure validation) ...
-
 def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, prime_pool, vecs, tmax=TMAX, debug=True):
     """
     Diagnose why a specific x-value wasn't found using Deterministic Capacity Check.
@@ -307,7 +303,6 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
     by rational reconstruction, assuming the search explores the prime combination.
     """
     from sage.all import QQ, ZZ, crt
-    from search_lll.rational_arithmetic import rational_reconstruct
 
     # 1. Compute Target m
     try:
@@ -338,11 +333,7 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
         if b % p_int == 0:
             residues_by_prime[p_int] = 'DENOM_ZERO'
             continue
-        try:
-            val = (a * pow(b, -1, p_int)) % p_int
-            residues_by_prime[p_int] = val
-        except:
-            continue
+        residues_by_prime[p_int] = (a * pow(b, -1, p_int)) % p_int
 
     # 3. Check Vectors (Find best matching vector)
     vector_stats = []
@@ -415,7 +406,7 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
                     print("  ✓ MATCH! Target successfully reconstructed.")
                 else:
                     print(f"  ✗ Mismatch (Got {m_recon}, Expected {target_m})")
-            except Exception as e:
+            except RationalReconstructionError as e:
                 print(f"  Reconstruction failed: {e}")
 
         else:

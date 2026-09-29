@@ -263,6 +263,23 @@ CURVE_ARCHIVE = [
         "data_pts": [3],  # NOTE: bare int in the original, not QQ(3) -- wrap in QQ() before using
         "terminate_when": 3,
     },
+    {
+        "comment": "formerly shadowed in search_common.py; seed x from an earlier run",
+        "coeffs": [QQ(1), QQ(0), QQ(-3), QQ(-1), QQ(3), QQ(0), QQ(3)],
+        "data_pts": [QQ(-58189)/QQ(209040)],
+        "terminate_when": 5,
+    },
+    {
+        "comment": "Hindes' curve, y^2 = x^6 + 3x^5 + 3x^4 + 3x^3 + 2x^2 + 1",
+        "coeffs": [QQ(1), QQ(3), QQ(3), QQ(3), QQ(2), QQ(0), QQ(1)],
+        "data_pts": [QQ(-1)],
+        "terminate_when": 10,
+    },
+    {
+        "comment": "same curve as the 'prestige curve' entry above, with the larger terminate_when (22) that search_common.py last used for it",
+        "coeffs": [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)],
+        "data_pts": [QQ(-1)],
+        "terminate_when": 22,
+    },
 ]
-# Note: Hindes' curve is the currently active curve in search_common.py, so
-# it isn't duplicated here.
+# The active curve (y^2 = x^5 + 2000x + 1) lives in search_common.py and isn't duplicated here.

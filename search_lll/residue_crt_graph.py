@@ -40,16 +40,8 @@ from .rational_arithmetic import (
     modulus_is_informative,
     rational_reconstruct,
 )
-
-try:
-    from search_common import MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE
-except ImportError:
-    print(
-        "[residue_crt_graph] WARNING: could not import "
-        "MIN_PRIME_SUBSET_SIZE/MIN_MAX_PRIME_SUBSET_SIZE from search_common; "
-        "falling back to 3/9."
-    )
-    MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE = 3, 9
+from .search_config import RationalReconstructionError
+from search_common import MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE
 
 
 MIN_MARGIN_OVER_BOX = 15
@@ -1723,7 +1715,7 @@ def reconstruct_candidate_from_chain(
             "primes": chain["primes"],
             "modulus": M,
         }
-    except Exception:
+    except RationalReconstructionError:
         return None
 
 
@@ -1782,7 +1774,7 @@ def reconstruct_candidates_from_component(
                     int(modulus),
                     max_den=max_den or H,
                 )
-            except Exception:
+            except RationalReconstructionError:
                 return
 
             results.append(

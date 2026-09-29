@@ -1,3 +1,6 @@
+"""
+ll_utilities.py: Matrix and lattice reduction helpers.
+"""
 import math, random, statistics, numpy as np, multiprocessing, os
 from sage.all import ZZ, diagonal_matrix, QQ, Integer, PolynomialRing, GF, gcd, Zmod, var, SR, EllipticCurve, identity_matrix, vector, matrix, kronecker, Integer as SageInteger
 from .search_config import *
@@ -12,35 +15,27 @@ _sage_lcm = lcm
 
 USE_JULIA_LADDER = False # wth is this, i forgor
 
-"""
-ll_utilities.py: Matrix and lattice reduction helpers.
-"""
 def detect_fiber_collision(Delta_poly, p, debug=DEBUG):
     """
     Detect if discriminant Delta(m) has repeated roots mod p.
-    Returns (has_collision, gcd_poly).
+    Returns (has_collision, gcd_poly).  Raises on any failure rather than
+    reporting "no collision".
     """
     from sage.all import GF, PolynomialRing, gcd
 
-    try:
-        Fp = GF(p)
-        R = PolynomialRing(Fp, 'm')
+    Fp = GF(p)
+    R = PolynomialRing(Fp, 'm')
 
-        Delta_modp = R([int(c) % p for c in Delta_poly.list()])
-        dDelta = Delta_modp.derivative()
+    Delta_modp = R([int(c) % p for c in Delta_poly.list()])
+    dDelta = Delta_modp.derivative()
 
-        g = gcd(Delta_modp, dDelta)
-        has_collision = (g.degree() > 1)
+    g = gcd(Delta_modp, dDelta)
+    has_collision = (g.degree() > 1)
 
-        if has_collision and debug:
-            print(f"⚠️  Fiber collision detected at p={p}: gcd degree {g.degree()}")
+    if has_collision and debug:
+        print(f"⚠️  Fiber collision detected at p={p}: gcd degree {g.degree()}")
 
-        return has_collision, g
-
-    except Exception as e:
-        if debug:
-            print(f"[detect_fiber_collision] p={p}: error {e}")
-        return False, None
+    return has_collision, g
 
 def _compute_column_norms(M):
     """
@@ -1026,7 +1021,6 @@ def prepare_section_poly_payload(Pi, a4_raw, a6_raw, p, D=None):
         if DEBUG:
             print(f"[prepare_section_poly_payload] p={p}: serialisation failed: {e}")
         raise
-        return None
 
 def _section_mults_from_julia(julia_mults_raw, required_ks,
                                base_ring, a4_raw, a6_raw, mock_curve):
@@ -1997,12 +1991,8 @@ def compute_qc_bias_scores(prime_pool, precomputed_residues, rhs_list,
         # Compute QC distribution
         qc_counts = Counter()
         for r in all_residues:
-            try:
-                qc = kronecker(r, p)
-                qc_counts[qc] += 1
-            except Exception:
-                raise
-                continue
+            qc = kronecker(r, p)
+            qc_counts[qc] += 1
 
         # Compute ratio (with smoothing to avoid division by zero)
         qc_minus = qc_counts.get(-1, 0)
@@ -2259,56 +2249,12 @@ def detect_residue_patterns(per_prime):
 
 def _robust_coerce_to_modp(val, Fp_m, p):
     """
-    Robustly coerce a value (likely in QQ(m) or SR) into Fp_m = GF(p)(m).
-    Handles cases where direct coercion fails by manually mapping coefficients.
-    Returns None if denominator vanishes mod p.
+    Coerce a value (likely in QQ(m) or SR) into Fp_m = GF(p)(m).
+    Raises if direct coercion fails.  (There used to be a manual coefficient-map
+    fallback below the direct attempt, but the direct attempt re-raised on
+    failure, so the fallback was unreachable and has been removed.)
     """
-    # 1. Try direct coercion first (fastest)
-    try:
-        return Fp_m(val)
-    except Exception:
-        raise
-
-    # 2. Convert to QQ(m) first to standardize
-    try:
-        val_qq = QQ['m'].fraction_field()(val)
-    except Exception:
-        # If it's symbolic SR, try to convert to poly/rational
-        try:
-            val_qq = val.polynomial(QQ)
-        except Exception:
-            # Fallback: try string parsing or direct numerator/denominator access
-            raise
-            return None
-        raise
-
-    # 3. Extract numerator and denominator polynomials
-    num_poly = val_qq.numerator()
-    den_poly = val_qq.denominator()
-
-    # 4. Map coefficients to GF(p)
-    # We need the polynomial ring over GF(p)
-    Rp = Fp_m.ring() # This is GF(p)['m']
-
-    try:
-        # Coerce numerator coefficients
-        num_coeffs = num_poly.coefficients(sparse=False)
-        num_modp = Rp([GF(p)(c) for c in num_coeffs])
-
-        # Coerce denominator coefficients
-        den_coeffs = den_poly.coefficients(sparse=False)
-        # Check if denominator vanishes mod p
-        if all(GF(p)(c) == 0 for c in den_coeffs):
-            return None # Division by zero mod p
-
-        den_modp = Rp([GF(p)(c) for c in den_coeffs])
-
-        return Fp_m(num_modp) / Fp_m(den_modp)
-
-    except Exception as e:
-        # print(f"Debug: Manual coef map failed for p={p}: {e}")
-        raise
-        return None
+    return Fp_m(val)
 
 def generate_qc_biased_prime_subsets(prime_pool, precomputed_residues, vecs,
                                      rhs_list, num_subsets, min_size, max_size,

@@ -1,8 +1,7 @@
-from .search_config import gcd, lru_cache, RationalReconstructionError, DEFAULT_MAX_CACHE_SIZE, floor, sqrt, QQ, crt, Integer
-
 """
 rational_arithmetic.py: Core number theory utilities.
 """
+from .search_config import gcd, lru_cache, RationalReconstructionError, DEFAULT_MAX_CACHE_SIZE, floor, sqrt, QQ, crt, Integer
 
 @lru_cache(maxsize=DEFAULT_MAX_CACHE_SIZE)
 def crt_cached(residues, moduli):
@@ -201,20 +200,13 @@ def modulus_is_informative(M, H):
     Whether M is large enough for lattice_rational_lift_exists(., M, H) to
     be a *meaningful* filter rather than a near-tautology.
 
-    lattice_rational_lift_exists always succeeds once M <= 2*H^2 for a
-    *generic* residue is no longer guaranteed, but the closer M is to H (or
-    below it), the more residues admit a small lift for the trivial reason
-    that the box [-H,H]x[-H,H] alone already contains ~ (2H+1)^2 lattice
-    points out of only M distinct classes -- by pigeonhole, once
-    (2H+1)^2 >> M, most classes have a representative in the box for free,
-    independent of any real number-theoretic structure. We only want to
-    spend time on the pairwise sieve once M is comfortably above H, so
-    that "found a small lift" is doing real work.
-
-    This returns True once M > H (the minimum for the box to not trivially
-    cover the whole modulus many times over); callers wanting the stronger
-    *uniqueness* guarantee should instead require M > 2*H*H, matching the
-    classical rational-reconstruction bound.
+    The box [-H,H]x[-H,H] contains ~(2H+1)^2 lattice points but there are only
+    M residue classes, so by pigeonhole most classes have a representative in
+    the box for free once (2H+1)^2 >> M, independent of any number-theoretic
+    structure. Returns True once M > H, i.e. once "found a small lift" is
+    doing real work. Callers wanting the stronger *uniqueness* guarantee
+    should instead require M > 2*H*H, the classical rational-reconstruction
+    bound.
     """
     return M > H
 
@@ -223,20 +215,18 @@ def find_minimal_abs_representative(t_mod_Q, Q, T):
     """
     Find if there exists k such that |t_mod_Q + k*Q| <= T
     Returns True if such k exists, False otherwise.
+
+    Exact: the k minimizing |t + k*Q| is floor(-t/Q) or that plus one, so test
+    those two with integer floor division rather than a float estimate (a float
+    k loses precision once |k| > 2^53, which happens for CRT-sized Q).
     """
     if Q == 0:
         return abs(t_mod_Q) <= T
 
-    k_opt_float = -t_mod_Q / Q
-    k_candidates = [int(k_opt_float), int(k_opt_float) + 1, 0]
+    k_floor = (-t_mod_Q) // Q
+    return any(abs(t_mod_Q + k * Q) <= T for k in (k_floor, k_floor + 1))
 
-    for k in k_candidates:
-        t = t_mod_Q + k * Q
-        if abs(t) <= T:
-            return True
-    return False
-
-def assert_base_m_found(base_m, expected_x, r_m_callable, shift, T=None, allow_raise=True):
+def assert_base_m_found(base_m, expected_x, r_m_callable, shift, T=None):
     """
     Ensure that x = T^-1(r_m(base_m)) - shift equals expected_x.
     This checks that the base point (mtest, xtest) relationship is respected
@@ -245,6 +235,9 @@ def assert_base_m_found(base_m, expected_x, r_m_callable, shift, T=None, allow_r
     r_m_callable(m) returns the x-coordinate (x'') on the most-transformed curve.
     If T is present, the shifted x-coordinate is T^-1(x'').
     Then the original x-coordinate is x_shifted - shift.
+
+    Always raises AssertionError on failure (the old allow_raise=False mode,
+    which returned False instead, had no callers).
     """
     assert base_m is not None, "assert_base_m_found requires a base_m (rational) to check"
 
@@ -252,10 +245,9 @@ def assert_base_m_found(base_m, expected_x, r_m_callable, shift, T=None, allow_r
         # r_m_callable(m=QQ(base_m)) evaluates to the final transformed x-coordinate (x'')
         x_final_transformed = r_m_callable(m=QQ(base_m))
     except Exception as e:
-        msg = f"assert_base_m_found: r_m_callable evaluation failed at m,shift={base_m},{shift}: {e}"
-        if allow_raise:
-            raise AssertionError(msg)
-        return False
+        raise AssertionError(
+            f"assert_base_m_found: r_m_callable evaluation failed at m,shift={base_m},{shift}: {e}"
+        ) from e
 
     # 1. Apply Inverse Mobius transform T^-1 to get the shifted x-coordinate (x')
     if T is not None:
@@ -263,10 +255,9 @@ def assert_base_m_found(base_m, expected_x, r_m_callable, shift, T=None, allow_r
             # We must use inverse_transform, as T maps x' -> x''
             x_shifted = T.inverse_transform(x_final_transformed)
         except Exception as e:
-             msg = f"assert_base_m_found: Mobius inverse transform failed at x={x_final_transformed}: {e}"
-             if allow_raise:
-                 raise AssertionError(msg)
-             return False
+            raise AssertionError(
+                f"assert_base_m_found: Mobius inverse transform failed at x={x_final_transformed}: {e}"
+            ) from e
     else:
         # If no T, x_final_transformed is x'
         x_shifted = x_final_transformed
@@ -278,15 +269,11 @@ def assert_base_m_found(base_m, expected_x, r_m_callable, shift, T=None, allow_r
     try:
         x_orig_q = QQ(x_orig)
         expected_x_q = QQ(expected_x)
-    except Exception:
-        msg = "assert_base_m_found: coercion to QQ failed"
-        if allow_raise:
-            raise AssertionError(msg)
-        return False
+    except Exception as e:
+        raise AssertionError("assert_base_m_found: coercion to QQ failed") from e
 
     if x_orig_q != expected_x_q:
-        msg = f"assert_base_m_found: mismatch. m={base_m} expected x={expected_x} got x={x_orig}"
-        if allow_raise:
-            raise AssertionError(msg)
-        return False
+        raise AssertionError(
+            f"assert_base_m_found: mismatch. m={base_m} expected x={expected_x} got x={x_orig}"
+        )
     return True

@@ -46,23 +46,7 @@ MUMFORD_SEARCH = False      # True -> Jacobian rank / Mumford basis search inste
 # ============================================================================
 # ACTIVE CURVE
 # ============================================================================
-COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(-3), QQ(-1), QQ(3), QQ(0), QQ(3)]
-DATA_PTS_GENUS2 = [QQ(-58189)/QQ(209040)]      # known rational x-coordinate(s) to seed the search
-TERMINATE_WHEN_6 = 5           # stop once this many distinct rational x-coords are known
-
-# Hindes' curve, rational point search mode.
-
-
-# y^2 = x^6 + 3x^5 + 3x^4 + 3x^3 + 2x^2 + 1
-COEFFS_GENUS2 = [QQ(1), QQ(3), QQ(3), QQ(3), QQ(2), QQ(0), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(-1)]      # known rational x-coordinate(s) to seed the search
-TERMINATE_WHEN_6 = 10           # stop once this many distinct rational x-coords are known
-
-
-COEFFS_GENUS2 =  [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(-1)]
-TERMINATE_WHEN_6 =  22
-
+# y^2 = x^5 + 2000x + 1   (coeffs are highest-degree first)
 COEFFS_GENUS2 = [QQ(0), QQ(1), QQ(0), QQ(0), QQ(0), QQ(2*10**3), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the search
 TERMINATE_WHEN_6 = 6          # stop once this many distinct rational x-coords are known
@@ -223,9 +207,7 @@ SEED_INT = random.randint(-10**6, 10**6)
 ANCHOR_SEED = SEED_INT             # seed for reproducible anchor point generation
 
 DEBUG = True
-TARGETED_X = None
-TARGETED_X = QQ(10**20) # set to a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a target
-TARGETED_X = QQ(1000)
+TARGETED_X = QQ(1000)   # None to disable; or a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a target
 
 # DEBUG-ONLY CHEAT, do not leave on for real searches: when True, and TARGETED_X
 # is set, run_standard_lattice_search restricts prime_pool to ONLY the primes
@@ -400,46 +382,16 @@ class CurveDataExt(NamedTuple):
 def to_mod_poly(poly_q, R, debug=False):
     """
     Coerce `poly_q` (polynomial-like over QQ or FractionField) into R = PolynomialRing(GF(ell), 'm').
+    Raises if direct coercion fails (there is deliberately no denominator-clearing fallback).
     """
-    try:
-        if poly_q.parent() is R:
-            return poly_q
-    except Exception:
-        raise
+    if poly_q.parent() is R:
+        return poly_q
     try:
         return R(poly_q)
     except Exception as e_direct:
         if debug:
             print(f"[debug to_mod_poly] direct coercion failed: {e_direct}")
         raise
-    try:
-        PQ = PolynomialRing(QQ, 'm')
-        poly_QQ = PQ(poly_q)
-    except Exception as e_pq:
-        raise RuntimeError(f"Cannot coerce to QQ polynomial: {e_pq}")
-
-    coeffs = list(poly_QQ.list())
-    dens = [int(QQ(c).denominator()) for c in coeffs]
-    lcm_val = 1
-    for d in dens:
-        lcm_val = lcm_val * d // gcd(lcm_val, d)
-
-    B = R.base_ring()
-    char = int(B.characteristic())
-    if char != 0 and (lcm_val % char == 0):
-        raise RuntimeError(f"Cannot clear rational denominators: lcm({set(dens)}) = {lcm_val} is NOT invertible mod {char}.")
-
-    mF = R.gen()
-    res = R(0)
-    for i, c in enumerate(coeffs):
-        int_coeff = int(QQ(c) * lcm_val)
-        res += B(int_coeff) * (mF**i)
-
-    if char != 0:
-        inv_lcm = B(lcm_val).inverse()
-        res *= inv_lcm
-
-    return res
 
 def reduce_cd_mod_ell(cd, ell, debug=False):
     """
@@ -736,33 +688,7 @@ def effective_degree(rational_expr, m):
     """
     num = rational_expr.numerator()
     den = rational_expr.denominator()
-    def _deg(poly):
-        try:
-            return int(poly.degree())
-        except Exception:
-            raise
-        try:
-            fac = poly.factor()
-            deg = 0
-            for base, exp in fac:
-                try:
-                    if base == m:
-                        deg += int(exp)
-                except Exception:
-                    raise
-                    continue
-            if deg:
-                return deg
-        except Exception:
-            raise
-        try:
-            R = PolynomialRing(QQ, str(m))
-            p = R(poly)
-            return int(p.degree())
-        except Exception:
-            raise
-            return 0
-    return _deg(num) - _deg(den)
+    return int(num.degree()) - int(den.degree())
 
 def _refresh_state(a4_final, a6_final, Fm):
     var('m')
@@ -803,23 +729,15 @@ def get_primes_from_poly(ff):
 
     - Only integer primes are returned.
     - Symbolic polynomial factors or 'm' are ignored.
-    - Robust against unexpected types; returns empty set on failure.
+    - Raises if `ff` (or a coefficient) can't be coerced; it does not return
+      a partial or empty set on failure.
     """
     primes = set()
 
-    # helper: add primes from a (possibly rational) coefficient c
     def add_primes_from_coeff(c):
-        try:
-            q = QQ(c)            # try to coerce coefficient to a rational
-        except Exception:
-            raise
-            return
-        try:
-            N = Integer(q.numerator())
-            D = Integer(q.denominator())
-        except Exception:
-            raise
-            return
+        q = QQ(c)
+        N = Integer(q.numerator())
+        D = Integer(q.denominator())
         if abs(N) > 1:
             for p, _ in N.factor():
                 primes.add(int(p))
@@ -827,35 +745,16 @@ def get_primes_from_poly(ff):
             for p, _ in D.factor():
                 primes.add(int(p))
 
-    # 1) Try numerator()/denominator() API (works for FractionField elements)
-    try:
-        num = ff.numerator()
-        den = ff.denominator()
-    except Exception:
-        num = ff
-        den = None
-        raise
+    # FractionField elements expose numerator()/denominator().
+    num = ff.numerator()
+    den = ff.denominator()
 
-    # 2) For each (num, den) gather rational coefficient primes.
     for poly in (num, den):
-        if poly is None:
-            continue
-        # If poly provides coefficients (typical for polynomial numerators/denoms)
-        if hasattr(poly, "coefficients"):
-            try:
-                coeffs = list(poly.coefficients())
-            except Exception:
-                coeffs = [poly]
-                raise
-        else:
-            coeffs = [poly]
-
+        coeffs = list(poly.coefficients()) if hasattr(poly, "coefficients") else [poly]
         for c in coeffs:
             add_primes_from_coeff(c)
 
-    # tidy: remove 0/1 if any sneaked in
-    primes = {p for p in primes if isinstance(p, int) and p > 1}
-    return primes
+    return {p for p in primes if p > 1}
 
 # ---- buildcd replacement ----
 
@@ -869,23 +768,19 @@ def to_rational(c):
 def min_order_in_m(expr, m):
     """
     Find the minimum order of m in an expression using Sage's valuation.
+    Raises if the valuation can't be computed.
     """
     if expr.is_zero():
         return float('inf')
 
     try:
         return expr.valuation(m)
-    except:
-        try:
-            if hasattr(expr, 'numerator') and hasattr(expr, 'denominator'):
-                num_val = expr.numerator().valuation(m) if not expr.numerator().is_zero() else float('inf')
-                den_val = expr.denominator().valuation(m) if not expr.denominator().is_zero() else float('inf')
-                return num_val - den_val
-            else:
-                return expr.valuation(m)
-        except:
-            print(f"WARNING: Could not compute valuation of {expr}")
-            return 0
+    except Exception:
+        if hasattr(expr, 'numerator') and hasattr(expr, 'denominator'):
+            num_val = expr.numerator().valuation(m) if not expr.numerator().is_zero() else float('inf')
+            den_val = expr.denominator().valuation(m) if not expr.denominator().is_zero() else float('inf')
+            return num_val - den_val
+        raise
 
 # The rationality test stays the same (cached)
 
@@ -1021,18 +916,12 @@ def test_y_rationality_genus2(m_candidates, r_m, shift):
     """Tests if m values lead to rational points on the original sextic."""
     found = set()
     for m_val in set(m_candidates):
-        try:
-            x = r_m(m=m_val) - shift
-            y = get_y_unshifted_genus2(x)
-            if y is not None:
-                found.add(x)
-                print(f"Found rational point from fiber m={m_val}: (x,y) = ({x}, {y})")
-        except (TypeError, ZeroDivisionError):
-            raise
-            continue
+        x = r_m(m=m_val) - shift
+        y = get_y_unshifted_genus2(x)
+        if y is not None:
+            found.add(x)
+            print(f"Found rational point from fiber m={m_val}: (x,y) = ({x}, {y})")
     return found
-
-# pseudo-code sketch (raise on unexpected failure)
 
 @PROFILE
 def suggest_height_bound(H_ref, H_used, base_bound, safety=1.10, method='det'):
@@ -1461,11 +1350,8 @@ def point_height(pt):
         h = float(log(max(1, num, den)))
         return h
     except Exception as e:
-        # Handle potential errors during conversion or calculation
-        # Assign effectively infinite height to prioritize valid points
-        print(f"Warning: Could not compute height for point {pt}: {e}")
+        print(f"Could not compute height for point {pt}: {e}")
         raise
-        return float('inf')
 
 # Replace the existing get_data_pts function with this one:
 @PROFILE
@@ -1475,7 +1361,6 @@ def get_data_pts(known_pts, excluded):
     Prioritizes combinations made from lower height points first.
     """
     # Convert set to list and sort known_pts by height (ascending)
-    # Points with calculation errors will be pushed to the end
     sorted_pts = sorted(list(known_pts), key=point_height)
 
     # Iterate through r (number of points in combination: 1, 2, 3)
