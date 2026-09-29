@@ -14,6 +14,7 @@ from .search_analysis import *
 # there). Import it explicitly by name so the wildcard's underscore rule
 # doesn't silently drop it.
 from .modularthread import _batch_check_rationality
+from .modularthread import filter_residues_by_rail
 from .modularthread import *
 from .ll_utilities import *
 from .diagnostics_univariate import *
@@ -1121,8 +1122,13 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
         # parallel.  Workers only compute; all recording into the shared
         # accumulators happens here, in vector order.
         _GRAPH_WORKER_STATE.clear()
+        # rail_ok: drop residues whose induced x can't carry a rational y
+        # (G(x) a non-residue mod p).  Real points always survive; ~half of
+        # everything else goes, which shrinks every clique the graph builds.
+        _graph_residues = filter_residues_by_rail(
+            precomputed_residues, coeffs_genus2, shift, r_m)
         _GRAPH_WORKER_STATE.update({
-            'residues': precomputed_residues,
+            'residues': _graph_residues,
             'prime_pool': PRIME_POOL,
             'height_bound': HEIGHT_BOUND,
             'trace_ms': _trace_ms or None,
@@ -1195,7 +1201,7 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
                   + (f"; lost at gen: { {g: len(vs) for g, vs in sorted(_lost.items())} }" if _lost else ""))
         print(f"[residue_graph] ===================================================\n")
 
-        if _mtarget_known is not None:
+        if _mtarget_known is not None and False: # too spammy!  don't turn back on
             from .residue_crt_graph import trace_target_through_arc_consistency
             if _mtarget_hits:
                 _hit_vs = list(dict.fromkeys(_mtarget_hits))

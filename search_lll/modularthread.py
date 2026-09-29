@@ -3,11 +3,41 @@ from operator import mul
 from functools import reduce, partial
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from collections import namedtuple, Counter
-from sage.all import QQ, ZZ, GF, EllipticCurve, Integer, vector, PolynomialRing, var, matrix, identity_matrix, lcm, SR, Zmod
+from sage.all import QQ, ZZ, GF, EllipticCurve, Integer, vector, PolynomialRing, var, matrix, identity_matrix, lcm, SR, Zmod, kronecker
 from .search_config import DEBUG, MIN_PRIME_SUBSET_SIZE, MAX_MODULUS, ROOTS_THRESHOLD, MAX_K_ABS, LLL_DELTA, BKZ_BLOCK, TRUNCATE_MAX_DEG, TMAX, HENSEL_SLOPPY, TORSION_SLOPPY, MAX_TORSION_ORDER_TO_FILTER, MAX_COMBOS_PER_SUBSET
 from .rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError, lattice_rational_lift_exists, modulus_is_informative
 from .ll_utilities import _trim_poly_coeffs, _compute_column_norms, _scale_matrix_columns_int, _compute_integer_scales_for_columns
 from .archimedean_optim import minimize_archimedean_t_linear_const
+
+# --- y-coordinate ("rail_ok") filter safety ---------------------------------
+# The Kronecker/QR filters below evaluate the ORIGINAL curve RHS at
+# r_m(m) - shift.  That is only the right x when no Mobius transform T is
+# active (rationality_test_func applies T_inv otherwise), so refuse to run
+# them if MOBIUS_TRANS is on -- or if we cannot tell.
+try:
+    from .search_config import MOBIUS_TRANS as _MOBIUS_TRANS
+except Exception:
+    try:
+        from search_common import MOBIUS_TRANS as _MOBIUS_TRANS
+    except Exception:
+        _MOBIUS_TRANS = None
+_RAIL_Y_FILTER_OK = (_MOBIUS_TRANS is False)
+RAIL_Y_FILTER = True   # master switch for the y-coordinate (rail_ok) filters
+_RAIL_WARNED = set()
+
+
+def _rail_warn_once(key, msg):
+    """Print a filter problem once per process so it can never fail silently."""
+    if key not in _RAIL_WARNED:
+        _RAIL_WARNED.add(key)
+        print(f"[rail_ok] WARNING: {msg}")
+
+
+if not _RAIL_Y_FILTER_OK:
+    _rail_warn_once(
+        "disabled",
+        f"y-coordinate Kronecker filters DISABLED (MOBIUS_TRANS={_MOBIUS_TRANS!r}; "
+        "they assume untransformed x).")
 
 """
 modular_workers.py: Parallel worker functions and modular reduction setup.
@@ -701,6 +731,9 @@ def _kronecker_prefilter_domain(p, residues_p, coeffs_genus2, shift, r_m_linear,
 
     Returns the subset of residues_p that pass (same type as residues_p).
     """
+    if p == 2 or not _RAIL_Y_FILTER_OK or not RAIL_Y_FILTER:
+        # Every class mod 2 is a square, and kronecker(a, 2) is NOT a QR test.
+        return set(residues_p)
     survivors = set()
     for a in residues_p:
         try:
@@ -734,14 +767,72 @@ def _kronecker_prefilter_domain(p, residues_p, coeffs_genus2, shift, r_m_linear,
 
             if kronecker(RHS_mod_p, p) == -1:
                 continue  # a is killed: G(x) is a non-residue mod p
-        except Exception:
-            # Modular reduction failed for this residue (e.g. denominator
-            # divisible by p) -- can't rule it out cheaply, so keep it and
-            # let the existing downstream checks handle it as before.
+        except (ZeroDivisionError, ArithmeticError, ValueError):
+            # Expected: denominator divisible by p, so the residue can't be
+            # reduced -- keep it and let downstream checks handle it.
             if stats_counter is not None:
                 stats_counter['arc_consistency_kronecker_exceptions'] += 1
+        except Exception as e:
+            # UNEXPECTED (e.g. NameError, coercion TypeError).  Previously this
+            # was swallowed, which made the whole prefilter a silent no-op
+            # (kronecker was never imported).  Still fail open -- never drop a
+            # residue on an error -- but make it visible.
+            if stats_counter is not None:
+                stats_counter['arc_consistency_kronecker_unexpected'] += 1
+            _rail_warn_once(("prefilter", type(e).__name__),
+                            f"Kronecker prefilter raised {type(e).__name__}: {e} "
+                            f"(p={p}); keeping residue, filter not effective.")
         survivors.add(a)
     return survivors
+
+
+def filter_residues_by_rail(precomputed_residues, coeffs_genus2, shift, r_m,
+                            stats_counter=None, verbose=True):
+    """
+    Node-level "rail_ok" filter for the residue CRT graph.
+
+    Drops every residue a (m = a mod p) for which the induced x = r_m(a) - shift
+    gives G(x) a quadratic NON-residue mod p: a rational point needs
+    y^2 = G(x) to be solvable mod every good p, so such a residue can never be
+    the reduction of a genuine point.  Real points always pass; a random
+    residue survives about half the time.
+
+    The test depends only on (p, a), so it is computed once per prime over the
+    union of that prime's residues, then applied to every vector's residue
+    lists.  Structure and container types of precomputed_residues are kept.
+    Returns a NEW dict; the input is not modified.  Fails open: any residue
+    that can't be evaluated is kept (see _kronecker_prefilter_domain).
+    """
+    if not RAIL_Y_FILTER or not _RAIL_Y_FILTER_OK or coeffs_genus2 is None:
+        return precomputed_residues
+    out, before, after = {}, 0, 0
+    for p, mapping in precomputed_residues.items():
+        if not mapping:
+            out[p] = mapping
+            continue
+        union = set()
+        for rhs_lists in mapping.values():
+            for rl in rhs_lists:
+                union.update(rl)
+        keep = _kronecker_prefilter_domain(p, union, coeffs_genus2, shift, None, r_m,
+                                           stats_counter=stats_counter)
+        new_map = {}
+        for v, rhs_lists in mapping.items():
+            new_lists = []
+            for rl in rhs_lists:
+                kept = [a for a in rl if a in keep]
+                before += len(rl)
+                after += len(kept)
+                new_lists.append(set(kept) if isinstance(rl, (set, frozenset)) else kept)
+            new_map[v] = new_lists
+        out[p] = new_map
+    if verbose:
+        pct = (100.0 * after / before) if before else 100.0
+        print(f"[rail_ok] graph residues: {before:,} -> {after:,} ({pct:.1f}% kept)")
+        if before >= 200 and after == before:
+            _rail_warn_once("noop", "filter removed nothing across a large residue set; "
+                                    "expected ~50% (check for swallowed errors above).")
+    return out
 
 
 def _pairwise_crt_survivors(anchor_modulus, residues_anchor, q, residues_q, height_bound, stats_counter=None):
@@ -1257,6 +1348,8 @@ def _check_rational_m_candidate(m_candidate: QQ, residue_map_for_filter: dict, e
 
         # --- UNIFIED MODULAR CHECK (y-coordinate Kronecker) ---
         # Always run this check, even if x-check was skipped
+        if q == 2 or not _RAIL_Y_FILTER_OK or not RAIL_Y_FILTER:
+            continue  # see _kronecker_prefilter_domain
         try:
             x_mod_q = 0
 
@@ -1286,9 +1379,13 @@ def _check_rational_m_candidate(m_candidate: QQ, residue_map_for_filter: dict, e
                     stats_counter['extra_prime_y_coord_rejects'] += 1
                 return False
 
-        except Exception:
+        except (ZeroDivisionError, ArithmeticError, ValueError):
             if verbose:
                 print(f"Warning: Modular reduction/y-sieve failed for q={q}. Skipping y-sieve.")
+            continue
+        except Exception as e:
+            _rail_warn_once(("candidate", type(e).__name__),
+                            f"y-sieve raised {type(e).__name__}: {e} (q={q}); skipping, filter not effective.")
             continue
 
     return True
