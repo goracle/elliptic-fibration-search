@@ -53,10 +53,6 @@ TERMINATE_WHEN_6 = 5           # stop once this many distinct rational x-coords 
 # Hindes' curve, rational point search mode.
 
 
-COEFFS_GENUS2 = [QQ(0), QQ(1), QQ(0), QQ(0), QQ(0), QQ(2*10**30), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the search
-TERMINATE_WHEN_6 = 4          # stop once this many distinct rational x-coords are known
-
 # y^2 = x^6 + 3x^5 + 3x^4 + 3x^3 + 2x^2 + 1
 COEFFS_GENUS2 = [QQ(1), QQ(3), QQ(3), QQ(3), QQ(2), QQ(0), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(-1)]      # known rational x-coordinate(s) to seed the search
@@ -67,19 +63,23 @@ COEFFS_GENUS2 =  [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(-1)]
 TERMINATE_WHEN_6 =  22
 
+COEFFS_GENUS2 = [QQ(0), QQ(1), QQ(0), QQ(0), QQ(0), QQ(2*10**3), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the search
+TERMINATE_WHEN_6 = 6          # stop once this many distinct rational x-coords are known
+
 
 # ============================================================================
 # STATIC CONFIG
 # ============================================================================
 
-HEIGHT_BOUND = 10 * 370                 # not that important, mostly, it seems
+HEIGHT_BOUND = 100 * 370                 # not that important, mostly, it seems
 HEIGHT_BOUND_NON_MINIMAL = 2 * HEIGHT_BOUND  # doubled bound used for non-minimal models
-NUM_PRIME_SUBSETS = 2           # important for stability under different seeds; >= 250 recommended, currently set to 2 to turn it off so graph crt can do its thing
+NUM_PRIME_SUBSETS = 1000           # important for stability under different seeds; >= 250 recommended, currently set to 2 to turn it off so graph crt can do its thing
 
 # NOTE: PRIME_POOL is set for real further down (after MIN_PRIME_SUBSET_SIZE),
 # once the modulus-sizing derivation is in scope -- see that block for why
 # it's primes(5000) rather than primes(100).
-PRIME_POOL = list(primes(100))
+PRIME_POOL = list(primes(600))
 
 
 
@@ -225,7 +225,7 @@ ANCHOR_SEED = SEED_INT             # seed for reproducible anchor point generati
 DEBUG = True
 TARGETED_X = None
 TARGETED_X = QQ(10**20) # set to a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a target
-TARGETED_X = QQ(3)/QQ(7)
+TARGETED_X = QQ(1000)
 
 # DEBUG-ONLY CHEAT, do not leave on for real searches: when True, and TARGETED_X
 # is set, run_standard_lattice_search restricts prime_pool to ONLY the primes
