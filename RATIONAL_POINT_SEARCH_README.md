@@ -21,8 +21,10 @@ are not** — they live under the `search_lll/` package:
 ```
 search_lll/
   search_config.py       # constants / config re-exports used across the package
-  search_main.py         # THE driver: run_standard_lattice_search, run_mumford_search,
+  search_main.py         # driver entry points: run_standard_lattice_search (thin wrapper),
+                          # run_mumford_search,
                           # the index-calculus attack entry point, the anomalous-sweep loop
+  standard_search.py      # the staged implementation behind run_standard_lattice_search
   ll_utilities.py         # LLL/BKZ vector enumeration, rational reconstruction
   rational_arithmetic.py  # low-level rational/CRT helpers
   modularthread.py         # per-prime-subset worker, _batch_check_rationality
@@ -108,7 +110,12 @@ Given a curve `y² = f(x)` (`COEFFS_GENUS2`) and one seed rational point
 - `[lll_reduce] WARNING: invalid height matrix, skipping LLL` is expected and
   harmless when there's only 1 section (rank-1 `H` has nothing to reduce).
 
-### 7. The main search loop (`search_lll/search_main.py: run_standard_lattice_search`)
+### 7. The main search loop (`search_lll/standard_search.py: run_standard_lattice_search`)
+
+(`search_main.run_standard_lattice_search` is a thin wrapper around it. In
+`standard_search.py` each stage below is its own function: `_prepare_modular_data`,
+`_precompute_residues`, `_discover_via_residue_graph`, `_run_targeted_diagnostics`,
+`_run_anomalous_sweep` → `_run_sweep_round` → `_record_round_results`.)
 This is the heart of the pipeline and where most of the log volume comes from:
 
 - **`prepare_modular_data_lll`**: reduces the fibration mod each prime in the
