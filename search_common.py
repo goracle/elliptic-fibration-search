@@ -83,7 +83,7 @@ HEIGHT_BOUND_NON_MINIMAL = 2 * HEIGHT_BOUND  # doubled bound used for non-minima
 # size k grows like log(box)/log(p)), so don't leave it much bigger than needed.
 # Not tied to MAX_MODULUS: MAX_MODULUS is a *ceiling* that drops subsets whose
 # product is too big, not a floor on how big M must be.
-M_HEIGHT_BOUND = 100 * 370
+M_HEIGHT_BOUND = 1000 * 70
 
 # Optional per-vector tightening of the m bound from the Shioda-Tate height:
 # for a vector v the bound is exp(v^T H v + c).  There is no proven c for a
@@ -93,12 +93,12 @@ M_HEIGHT_BOUND = 100 * 370
 # silently rejects real points, so don't calibrate it from a couple of
 # small known points.
 PER_VECTOR_M_BOUND_C = None
-NUM_PRIME_SUBSETS = 1000           # important for stability under different seeds; >= 250 recommended, currently set to 2 to turn it off so graph crt can do its thing
+NUM_PRIME_SUBSETS = 15000           # important for stability under different seeds; >= 250 recommended, currently set to 2 to turn it off so graph crt can do its thing
 
 # NOTE: PRIME_POOL is set for real further down (after MIN_PRIME_SUBSET_SIZE),
 # once the modulus-sizing derivation is in scope -- see that block for why
 # it's primes(5000) rather than primes(100).
-PRIME_POOL = list(primes(100))
+PRIME_POOL = list(primes(20000))[-7000:]
 
 
 
