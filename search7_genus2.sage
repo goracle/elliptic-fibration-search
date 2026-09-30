@@ -1040,7 +1040,7 @@ def run_qq_mode_diagnostics(cumulative_stats, prime_pool, height_bound, all_know
 
     if TARGETED_X:
         run_targeted_point_analysis(TARGETED_X, r_m, cumulative_stats, prime_pool,
-                                   analyzer, precomputed_residues)
+                                   analyzer, precomputed_residues, shift=shift)
 
     print_search_summary(cumulative_stats, all_known_x)
     run_sufficiency_proof_and_posterior(cumulative_stats, all_known_x, height_bound,
@@ -1048,13 +1048,15 @@ def run_qq_mode_diagnostics(cumulative_stats, prime_pool, height_bound, all_know
     validate_ramification_locus(cd, cumulative_stats)
 
 @PROFILE
-def run_targeted_point_analysis(TARGETED_X, r_m, cumulative_stats, prime_pool, analyzer, precomputed_residues):
+def run_targeted_point_analysis(TARGETED_X, r_m, cumulative_stats, prime_pool, analyzer, precomputed_residues, shift=0):
     """Run analysis for a specific targeted point."""
     print("\n" + "="*70)
     print(f"TARGETED POINT ANALYSIS: x = {TARGETED_X}")
     print("="*70)
 
-    const = r_m(m=QQ(0))
+    # x = r_m(m) - shift, so m = r_m(0) - shift - x  (r_m(m) = -m + r_m(0) here).
+    # Omitting `- shift` used to check m=-9999 while the graph traced m=-10000.
+    const = r_m(m=QQ(0)) - QQ(shift)
     target_m = QQ(-1) * TARGETED_X + const
     print(f"Target m-value: {target_m}")
 
@@ -1070,7 +1072,7 @@ def run_targeted_point_analysis(TARGETED_X, r_m, cumulative_stats, prime_pool, a
             print("May need larger prime subsets or more iterations.")
         else:
             print(f"\n✗ Target point has low visibility ({cov['coverage_fraction']:.1%})")
-            print("Increase HEIGHT_BOUND or add more primes to pool.")
+            print("Increase M_HEIGHT_BOUND or add more primes to pool.")
 
         sig = analyzer.visibility_signature(target_m)
         print(f"\nPer-prime visibility: {sig['matched']}/{sig['usable']} primes matched ({sig['fraction']:.1%})")
@@ -1122,7 +1124,11 @@ def run_sufficiency_proof_and_posterior(cumulative_stats, all_known_x, height_bo
         h_obs_max = height_bound
         print(f"Proof using SEARCH height: {h_obs_max:.2f}")
 
-    run_sufficiency_proof(h_obs_max, cumulative_stats.prime_subsets, mw_rank)
+    # Prove the statement about the m box (M_HEIGHT_BOUND), not about the largest
+    # point found so far: with only x=0 known the observed height is 0 and the old
+    # check passed vacuously.
+    run_sufficiency_proof(h_obs_max, cumulative_stats.prime_subsets, mw_rank,
+                          m_height_bound=M_HEIGHT_BOUND)
 
     from stats import prior_from_arithmetic, completeness_posterior_geometric, bootstrap_visibility, FindabilityAnalyzer
 

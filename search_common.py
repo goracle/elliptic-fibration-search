@@ -46,15 +46,15 @@ MUMFORD_SEARCH = False      # True -> Jacobian rank / Mumford basis search inste
 # ============================================================================
 # ACTIVE CURVE
 # ============================================================================
-# y^2 = x^5 + 2000x + 1   (coeffs are highest-degree first)
-COEFFS_GENUS2 = [QQ(0), QQ(1), QQ(0), QQ(0), QQ(0), QQ(2*10**3), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the search
-TERMINATE_WHEN_6 = 6          # stop once this many distinct rational x-coords are known
-
 
 COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(-1)]
 TERMINATE_WHEN_6 = 22
+
+# y^2 = x^5 + 2000x + 1   (coeffs are highest-degree first)
+COEFFS_GENUS2 = [QQ(0), QQ(1), QQ(0), QQ(0), QQ(0), QQ(2*10**6), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the search
+TERMINATE_WHEN_6 = 4          # stop once this many distinct rational x-coords are known
 
 
 
@@ -62,8 +62,37 @@ TERMINATE_WHEN_6 = 22
 # STATIC CONFIG
 # ============================================================================
 
-HEIGHT_BOUND = 100 * 370                 # not that important, mostly, it seems
+# HEIGHT_BOUND has ONE job: it cuts off which multiples [n]P (search vectors) get
+# scanned -- compute_search_vectors(H, HEIGHT_BOUND), i.e. n^2 * h_hat(P) <= HEIGHT_BOUND.
+# It is NOT the size of the box the CRT lift reconstructs m from -- see
+# M_HEIGHT_BOUND right below.
+HEIGHT_BOUND = 10 * 370                 # not that important, mostly, it seems
 HEIGHT_BOUND_NON_MINIMAL = 2 * HEIGHT_BOUND  # doubled bound used for non-minimal models
+
+# M_HEIGHT_BOUND: the m bound.  A candidate fibre parameter m is searched for as a
+# reduced fraction a/s with |a| <= M_HEIGHT_BOUND and 1 <= s <= M_HEIGHT_BOUND
+# (naive height max(|a|, s) <= M_HEIGHT_BOUND).  Used by
+#   * the residue CRT graph (its box is (2*M_HEIGHT_BOUND+1)^2; chains are
+#     confirmed once M > 15*box, rigorous uniqueness at M > 2*M_HEIGHT_BOUND^2),
+#   * the anomalous-sweep CRT lift (rational_reconstruct max_den, Stage-2 prefilter),
+#   * the completeness proof in brauer.py.
+# Set it to at least the naive height of the largest m you want to be able to
+# recover.  With x = r_m(m) - shift and r_m linear, |m| ~ |x|, so for a target
+# x = 10^4 you need M_HEIGHT_BOUND >= ~10^4 (+ shift); for 10^20 you need 10^20.
+# Cost grows quickly with it (the graph cannot prune below M ~ box, and the clique
+# size k grows like log(box)/log(p)), so don't leave it much bigger than needed.
+# Not tied to MAX_MODULUS: MAX_MODULUS is a *ceiling* that drops subsets whose
+# product is too big, not a floor on how big M must be.
+M_HEIGHT_BOUND = 100 * 370
+
+# Optional per-vector tightening of the m bound from the Shioda-Tate height:
+# for a vector v the bound is exp(v^T H v + c).  There is no proven c for a
+# fibration over a function field, so this stays OFF (None) and every vector
+# uses M_HEIGHT_BOUND.  Set a float c you have justified to switch it on; each
+# vector then gets min(M_HEIGHT_BOUND, exp(v^T H v + c)).  A c that is too small
+# silently rejects real points, so don't calibrate it from a couple of
+# small known points.
+PER_VECTOR_M_BOUND_C = None
 NUM_PRIME_SUBSETS = 1000           # important for stability under different seeds; >= 250 recommended, currently set to 2 to turn it off so graph crt can do its thing
 
 # NOTE: PRIME_POOL is set for real further down (after MIN_PRIME_SUBSET_SIZE),
@@ -142,7 +171,7 @@ MIN_MAX_PRIME_SUBSET_SIZE = 9      # a little headroom above the min; see note b
 # exactly, against whatever PRIME_POOL / subset-size constants are actually
 # configured, and tells you PASS/FAIL plus how much to adjust.
 TARGET_NAIVE_HEIGHT_DIGITS = None   # None = don't run the 10^D completeness pre-flight below (set e.g. 4 or 10 to see it).
-# The graph-crt clique size is NOT driven by this: it comes from HEIGHT_BOUND
+# The graph-crt clique size is NOT driven by this: it comes from M_HEIGHT_BOUND
 # via crt_bounds.informative_threshold / clique_size_bounds.
 
 # Raised well past the old 10**100 so the completeness proof doesn't cap out
@@ -211,12 +240,19 @@ if not FINITE_FIELD and _IS_MAIN_PROCESS and TARGET_NAIVE_HEIGHT_DIGITS is not N
     )
 
 # random seed for reproducibility
-SEED_INT = random.randint(-10**6, 10**6)
+# The seed drives the fibration builder (build_one_fibration_step,
+# interpolate_Q_general), the anchor points and the subset sampler, so it decides
+# which quartic/fibration a run gets.  Set FIB_SEED=<int> in the environment to
+# reproduce or vary a run on purpose; otherwise a fresh random seed is drawn.
+_seed_env = os.environ.get("FIB_SEED")
+SEED_INT = int(_seed_env) if _seed_env not in (None, "") else random.randint(-10**6, 10**6)
 ANCHOR_SEED = SEED_INT             # seed for reproducible anchor point generation
+if _IS_MAIN_PROCESS:
+    print(f"SEED_INT = {SEED_INT}" + ("  (from FIB_SEED)" if _seed_env not in (None, "") else "  (random; set FIB_SEED to fix it)"))
 
 DEBUG = True
-TARGETED_X = QQ(100)   # None to disable; or a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a target
 TARGETED_X = QQ(182)/QQ(141)
+TARGETED_X = QQ(10000)   # None to disable; or a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a target
 
 # DEBUG-ONLY CHEAT, do not leave on for real searches: when True, and TARGETED_X
 # is set, run_standard_lattice_search restricts prime_pool to ONLY the primes
@@ -1376,20 +1412,26 @@ def get_data_pts(known_pts, excluded):
     """
     Gets the next combination of 1, 2, or 3 points for a fibration.
     Prioritizes combinations made from lower height points first.
+
+    Skips combinations that repeat an x-coordinate ((x, y) with (x, -y) is not
+    two data points, and the interpolation through them fails), and treats
+    combinations equal up to an overall y sign as the same fibration.
+    `excluded` holds frozenset(data_pts) as before; both sign variants are checked.
     """
     # Convert set to list and sort known_pts by height (ascending)
     sorted_pts = sorted(list(known_pts), key=point_height)
 
     # Iterate through r (number of points in combination: 1, 2, 3)
     for r in range(1, 4):
-        # Generate combinations from the sorted list.
         # itertools.combinations preserves the input order, so combinations
         # using points earlier in the sorted list (lower height) are yielded first.
         for combo in itertools.combinations(sorted_pts, r):
-            # Check if this combination has already been excluded
-            if frozenset(combo) not in excluded:
-                # Return the first valid combination found
-                return combo
+            if len({pt[0] for pt in combo}) < r:
+                continue
+            flipped = frozenset((pt[0], -pt[1]) for pt in combo)
+            if frozenset(combo) in excluded or flipped in excluded:
+                continue
+            return combo
 
     # If all combinations have been checked and excluded
     return None
@@ -2400,6 +2442,13 @@ def lll_reduce_mw_basis(cd, P_list):
     # ========================================================================
     # QQ MODE: True LLL Reduction
     # ========================================================================
+
+    if r == 1:
+        # Rank 1: nothing to reduce.  (check_independence returns H=None for a
+        # single section, which used to trip the "invalid height matrix" warning.)
+        print("[lll_reduce QQ] Rank 1: nothing to reduce")
+        sys.stdout.flush()
+        return P_list
 
     print("[lll_reduce QQ] Computing height matrix for LLL")
     sys.stdout.flush()

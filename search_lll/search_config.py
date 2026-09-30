@@ -33,7 +33,8 @@ try:
     from search_common import (
         DEBUG, PROFILE, HENSEL_SLOPPY, TORSION_SLOPPY, TARGETED_X, PRIME_POOL,
         SEED_INT, MAX_TORSION_ORDER_TO_FILTER, MIN_PRIME_SUBSET_SIZE,
-        MIN_MAX_PRIME_SUBSET_SIZE, MAX_MODULUS, MAX_COMBOS_PER_SUBSET
+        MIN_MAX_PRIME_SUBSET_SIZE, MAX_MODULUS, MAX_COMBOS_PER_SUBSET,
+        M_HEIGHT_BOUND, PER_VECTOR_M_BOUND_C
     )
 except ImportError:
     print("CRITICAL: search_lll/search_config.py could not import from search_common.")
@@ -50,6 +51,8 @@ except ImportError:
     MIN_MAX_PRIME_SUBSET_SIZE = 7
     MAX_MODULUS = 10**30
     MAX_COMBOS_PER_SUBSET = 5000
+    M_HEIGHT_BOUND = 37000
+    PER_VECTOR_M_BOUND_C = None
     raise
 
 # === 5. LLL-Package Specific Constants ===

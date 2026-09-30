@@ -56,6 +56,7 @@ from .search_main import (
     EXTRA_PRIME_SKIP,
     EXTRA_PRIME_TARGET_DENSITY,
     HEIGHT_BOUND,
+    M_HEIGHT_BOUND,
     MAX_ANOMALOUS_SWEEP_ROUNDS,
     MEASURE_COMPATIBLE_PRIME_RATE_BANDS,
     MEASURE_COMPATIBLE_PRIME_RATE_BY_BAND,
@@ -605,6 +606,19 @@ def _discover_via_residue_graph(inp, acc, vecs_list, precomputed_residues):
 
     trace_ms = _known_point_trace_ms(inp, mtarget_known)
 
+    # The box the graph certifies m in.  Independent of HEIGHT_BOUND, which only
+    # decides which multiples [n]P are scanned.
+    m_box = int(inp.sconf.get('M_HEIGHT_BOUND', M_HEIGHT_BOUND))
+    print(f"[residue_graph] m box: M_HEIGHT_BOUND={m_box} "
+          f"(|num| and den <= {m_box}); [n]P scan cutoff HEIGHT_BOUND={inp.sconf.get('HEIGHT_BOUND')}")
+    if mtarget_known is not None:
+        _mt = QQ(mtarget_known)
+        _h_mt = max(abs(int(_mt.numerator())), abs(int(_mt.denominator())))
+        if _h_mt > m_box:
+            print(f"[residue_graph] !!! target m={_mt} has naive height {_h_mt} > "
+                  f"M_HEIGHT_BOUND={m_box}: it is outside the box and cannot be found "
+                  f"this run.  Raise M_HEIGHT_BOUND in search_common.py.")
+
     graph_vecs = [tuple(v) for v in vecs_list
                   if not (len(vecs_list) > 1 and all(c == 0 for c in v))]
     t_graph0 = time.time()
@@ -625,7 +639,7 @@ def _discover_via_residue_graph(inp, acc, vecs_list, precomputed_residues):
     _GRAPH_WORKER_STATE.update({
         'residues': graph_residues,
         'prime_pool': PRIME_POOL,
-        'height_bound': HEIGHT_BOUND,
+        'height_bound': m_box,          # the m box (M_HEIGHT_BOUND), not the [n]P cutoff
         'trace_ms': trace_ms or None,
         'square_den': square_den,
     })

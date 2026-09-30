@@ -482,11 +482,15 @@ def discover_candidates_via_residue_graph(precomputed_residues, prime_pool, heig
             precomputed_residues, prime_pool, height_bound=H, v_tuple=v_tuple,
         )
     else:
-        cost = rcg.estimate_ktuple_cost(prime_pool, k_needed)
         if debug and print_header:
+            import inspect
             from .search_config import PARALLEL_PRIME_WORKERS
-            print(f"[residue_graph] k={k_needed}: C(pool,k)={cost} tuples "
-                  f"(max_tuples={max_tuples}, workers={PARALLEL_PRIME_WORKERS})")
+            _max_tests = inspect.signature(rcg.build_residue_chains_ordered).parameters["max_tests"].default
+            # (This used to print C(pool,k) tuples and max_tuples; the ordered
+            #  strategy ignores both -- its real budget is max_tests CRT states.)
+            print(f"[residue_graph] k_needed={k_needed} (a clique of this size is guaranteed to clear "
+                  f"the confirmation threshold); ordered search, budget max_tests={_max_tests:,} "
+                  f"CRT states per vector, workers={PARALLEL_PRIME_WORKERS}")
         graph = rcg.build_residue_graph_ktuple(
             precomputed_residues, prime_pool, height_bound=H, k=k_needed, v_tuple=v_tuple,
             max_tuples=max_tuples, progress=verbose_graph, known_m=known_m,

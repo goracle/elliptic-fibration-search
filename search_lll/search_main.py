@@ -42,101 +42,74 @@ from . import height_bound as _hb_mod
 def _resolve_height_bound(cd, current_sections, search_vecs, sconf, height_pairing_H=None,
                            known_vectors_and_m=None):
     """
-    Build the per-vector {v_orig_tuple: bound} dict from the Shioda-Tate
-    canonical height pairing on the elliptic surface (search_lll/height_bound.py),
-    falling back to the old flat sconf['HEIGHT_BOUND'] constant if a real H
-    isn't available, there's no calibration data yet, or the derived bound
-    can't be trusted for this vector set.
+    The bound on the naive height of m (max(|num|, den) of the reduced fraction
+    m = a/s) used by the CRT lift for each search vector.  Returns either a flat
+    int (sconf['M_HEIGHT_BOUND']) or a {v_orig_tuple: bound} dict.
 
-    known_vectors_and_m: list of (v_orig_tuple, m_value) pairs already
-    CONFIRMED rational by a prior round of this same search (e.g.
-    all_final_rational_pairs from earlier anomalous-sweep rounds). Used to
-    calibrate the naive-vs-canonical height discrepancy constant c
-    empirically (see height_bound.empirical_c_from_known_points) -- there
-    is no closed-form Silverman-style bound available for a curve over a
-    function field, so this MUST come from real data. None or empty means
-    no calibration data exists yet (e.g. round 0 of a fresh search, or
-    markov mode, which has no such accumulator at all) -- correctly falls
-    back to the flat bound rather than guessing c=0, which is exactly the
-    UNDER-estimate that would silently drop real points. The filter
-    therefore activates progressively: it's inert on the very first round
-    and switches on automatically once that round has found anything to
-    calibrate against.
+    This is the m bound, NOT the [n]P scan cutoff: sconf['HEIGHT_BOUND'] only
+    decides which multiples [n]P get enumerated (compute_search_vectors).
 
-    *** WHY THIS NO LONGER CALLS E.height_pairing_matrix() ***
-    cd.E_weier is an EllipticCurve over the function field Frac(QQ[m]) (this
-    is a fibration -- m is the base coordinate), not over QQ or a number
-    field. Sage's E.height_pairing_matrix()/E.silverman_height_bound() only
-    exist for EllipticCurve_rational_field / EllipticCurve_number_field, so
-    calling them here always raised AttributeError and silently fell back
-    to the flat bound -- i.e. the per-vector filter was never actually
-    active, despite being fully wired into modularthread.py's Stage 2
-    prefilter and acceptance path. The real analogue for a fibration is the
-    Shioda-Tate height pairing <P_i, P_j> = chi + (P.O) + (Q.O) - (P.Q) -
-    sum_v contr_v(P,Q), which the driver loop already computes every
-    iteration via check_independence -> compute_canonical_height_matrix
-    (that's the "Height Pairing Matrix H:" print) and uses to build the
-    search lattice itself (compute_search_vectors(H, height_bound)). H is
-    now passed straight through here instead of being (impossibly)
-    recomputed via a QQ-only Sage API.
+    Default: the flat M_HEIGHT_BOUND for every vector.
 
-    m_map_height_factor=1: valid for the linear/shift-only r_m seen so far
-    in this codebase (e.g. r_m = -m-1) -- a linear map x = m + b has
-    numerator/denominator growth bounded by a factor of 1 relative to its
-    argument's. THIS IS NOT VALID for a Mobius transform T with nontrivial
-    coefficients or any higher-degree r_m -- if a fibration using either
-    of those is run through this, the resulting bound is not proven and
-    should be re-derived (see height_bound.py's module docstring) before
-    being trusted.
+    Per-vector tightening (opt-in, search_common.PER_VECTOR_M_BOUND_C = c):
+    the Shioda-Tate height gives max(|num|, den) <= exp(v^T H v + c) for the
+    x-coordinate of [v]P, and for the linear/shift-only r_m of this codebase
+    (m_map_height_factor=1) the same for m.  There is no proven c for a
+    fibration over a function field, and calibrating c from a few small known
+    points under-estimates it (it would silently reject the very points we are
+    looking for), so c is a user-chosen constant -- never derived here -- and
+    the result is capped by M_HEIGHT_BOUND: bound_v = min(M_HEIGHT_BOUND,
+    exp(v^T H v + c)).  It is NOT valid for a Mobius r_m or higher-degree r_m
+    (see height_bound.py's docstring).
+
+    (History: this used to call build_vector_height_bounds_from_matrix with
+    neither c= nor known_vectors_and_m=, which always raised and fell back to
+    the flat bound after printing a warning every iteration -- so the per-vector
+    filter never ran.  It now only runs when you supply c.)
     """
-    flat_fallback = sconf.get('HEIGHT_BOUND')
+    flat = sconf.get('M_HEIGHT_BOUND')
+    if flat is None:
+        flat = M_HEIGHT_BOUND
+    c = PER_VECTOR_M_BOUND_C
+
+    if c is None:
+        return flat
 
     if height_pairing_H is None:
-        print("[height_bound] no Shioda-Tate H supplied for this iteration; "
-              f"falling back to flat HEIGHT_BOUND={flat_fallback}")
-        return flat_fallback
+        print(f"[m_bound] PER_VECTOR_M_BOUND_C={c} set but no Shioda-Tate H for this "
+              f"iteration (rank-1 fibrations have none); using flat M_HEIGHT_BOUND={flat}")
+        return flat
 
     try:
         n = height_pairing_H.nrows()
     except Exception as e:
-        print(f"[height_bound] supplied H is not a matrix ({e}); "
-              f"falling back to flat HEIGHT_BOUND={flat_fallback}")
-        return flat_fallback
+        print(f"[m_bound] supplied H is not a matrix ({e}); using flat M_HEIGHT_BOUND={flat}")
+        return flat
 
     if n != len(current_sections):
-        print(f"[height_bound] H is {n}x{n} but current_sections has "
-              f"{len(current_sections)} entries -- ordering mismatch, "
-              f"refusing to use it. Falling back to flat HEIGHT_BOUND="
-              f"{flat_fallback}")
-        return flat_fallback
+        print(f"[m_bound] H is {n}x{n} but current_sections has {len(current_sections)} "
+              f"entries -- ordering mismatch; using flat M_HEIGHT_BOUND={flat}")
+        return flat
 
     try:
-        bounds = _hb_mod.build_vector_height_bounds_from_matrix(
-            height_pairing_H, search_vecs, m_map_height_factor=1
+        derived = _hb_mod.build_vector_height_bounds_from_matrix(
+            height_pairing_H, search_vecs, m_map_height_factor=1, c=float(c)
         )
     except Exception as e:
-        print(f"[height_bound] per-vector bound computation failed ({e}); "
-              f"falling back to flat HEIGHT_BOUND={flat_fallback}")
-        return flat_fallback
+        print(f"[m_bound] per-vector bound computation failed ({e}); "
+              f"using flat M_HEIGHT_BOUND={flat}")
+        return flat
 
-    # Validate against every known point before trusting this to reject
-    # anything (see height_bound.py's module docstring). all_found_x/known
-    # m-values aren't threaded into this helper's args, so this checks the
-    # cheap invariant we *can* check here -- that no bound came out
-    # non-positive/degenerate, which would indicate H itself is bad (e.g.
-    # not positive definite for the sections given) -- and defers the
-    # against-known-points check to validate_height_bound_or_raise, called
-    # once per iteration right after new points are found (see
-    # run_qq_mode_diagnostics / the call added in search7_genus2.sage).
-    for v_tuple, b in bounds.items():
-        if b is not None and b <= 0:
-            print(f"[height_bound] degenerate non-positive bound {b} for "
-                  f"vector {v_tuple} -- H is likely not positive definite "
-                  f"for these sections. Falling back to flat HEIGHT_BOUND="
-                  f"{flat_fallback}")
-            return flat_fallback
-
+    bounds = {}
+    for v_tuple, b in derived.items():
+        if b is None or b <= 0:
+            print(f"[m_bound] degenerate bound {b} for vector {v_tuple} -- H is likely not "
+                  f"positive definite for these sections; using flat M_HEIGHT_BOUND={flat}")
+            return flat
+        bounds[v_tuple] = min(int(flat), int(b))
     return bounds
+
+
 if FINITE_FIELD:
     from .lp_incidence_dlp import *
 from markov.mumford_oscar_bridge import mumford_precompute_residues_oscar as _oscar_residues

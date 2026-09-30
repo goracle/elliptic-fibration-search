@@ -2,7 +2,7 @@ import math, random, subprocess, tempfile, os, shlex, multiprocessing, time, tra
 from sage.all import *
 from functools import lru_cache, reduce
 from operator import mul
-from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS, PRIME_POOL, MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE, MAX_MODULUS, USE_CONSENSUS_FILTER, FINITE_FIELD, is_good_prime_for_surface, HEIGHT_BOUND as CONFIGURED_HEIGHT_BOUND
+from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS, PRIME_POOL, MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE, MAX_MODULUS, USE_CONSENSUS_FILTER, FINITE_FIELD, is_good_prime_for_surface, HEIGHT_BOUND as CONFIGURED_HEIGHT_BOUND, M_HEIGHT_BOUND as CONFIGURED_M_HEIGHT_BOUND
 from math import gcd
 from collections import Counter
 
@@ -71,7 +71,8 @@ def estimate_galois_signature_modp(poly, primes_to_test=None, debug=DEBUG):
 
     if debug and not FINITE_FIELD:
         print(f"[bounds] Unique patterns from {primes_used} primes: {unique_patterns}")
-        print(f"[bounds] Estimated splitting field degree: {deg_est}")
+        print(f"[bounds] lcm of Frobenius cycle lengths over all sampled primes: {deg_est} "
+              f"(a lower bound for the exponent of the Galois group, NOT the splitting field degree)")
 
     ret = {
         'splitting_field_degree_est': deg_est,
@@ -1985,7 +1986,8 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
     tmax = min(tmax, 500)
 
     sconf = {
-        'HEIGHT_BOUND': height_bound,
+        'HEIGHT_BOUND': height_bound,                    # [n]P scan cutoff only
+        'M_HEIGHT_BOUND': CONFIGURED_M_HEIGHT_BOUND,     # box for m in the CRT lift
         'PRIME_POOL': pool_adapted,
         'RESIDUE_COUNTS': residue_counts,
         'SUBSET_PLAN': subset_plan,

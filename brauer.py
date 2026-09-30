@@ -64,10 +64,58 @@ def prove_modulus_sufficiency(C_lll, height_bound, prime_subset):
         'height_bound': height_bound
     }
 
-def run_sufficiency_proof(height_bound, prime_subsets, mw_rank):
+def prove_m_box_uniqueness(m_height_bound, prime_subset):
     """
-    Runs the formal "C-bound" check to verify that the CRT modulus
-    is sufficient for rational reconstruction up to the height bound.
+    Rigorous statement about a CRT modulus M = prod(prime_subset) and the m box:
+
+        M > 2 * H^2   =>   at most one reduced fraction a/s with |a|, s <= H
+                            lies in any residue class mod M.
+
+    (Two distinct fractions in the box differ by a nonzero integer of absolute
+    value <= 2*H^2, so if M exceeds that they cannot share a class.)  So for
+    M above this bound a class that contains a box fraction determines m
+    uniquely -- that is what makes "found nothing" mean "nothing with naive
+    height <= H is compatible with these residues".
+
+    Below it, a class can hold several box fractions, and a recovered fraction
+    of height h is only guaranteed to be THE fraction if M > 2*h^2.
+
+    Returns (ok, details).  Done in log space.
+    """
+    from functools import reduce
+    from operator import mul
+    H = int(m_height_bound)
+    M = reduce(mul, [int(p) for p in prime_subset], 1)
+    if M <= 0 or H <= 0:
+        return False, {'M': M, 'log_M': 0.0, 'log_threshold': 0.0, 'm_height_bound': H,
+                       'error': 'non-positive M or H'}
+    log_M = math.log(M)            # math.log takes arbitrarily large ints
+    log_threshold = math.log(2.0) + 2.0 * math.log(float(H))
+    # largest h for which this M is still above 2*h^2
+    h_certified = int(math.isqrt(M // 2))
+    return log_M > log_threshold, {
+        'M': M, 'log_M': log_M, 'log_threshold': log_threshold,
+        'm_height_bound': H, 'h_certified': h_certified,
+    }
+
+
+def run_sufficiency_proof(height_bound, prime_subsets, mw_rank, m_height_bound=None):
+    """
+    Runs the formal "C-bound" check that the CRT modulus is sufficient for
+    rational reconstruction.
+
+    m_height_bound (search_common.M_HEIGHT_BOUND) selects WHAT is proved:
+
+      * given: the statement about the search itself -- every m of naive height
+        <= m_height_bound is uniquely determined by its class mod the smallest
+        subset modulus, i.e. M_min > 2 * m_height_bound^2 (see
+        prove_m_box_uniqueness).  It does not depend on which points happened to
+        be found.
+      * None (legacy): log(M_min) > log(2*C_lll) + height_bound, where
+        height_bound is the naive x-height in nats of the LARGEST FOUND point.
+        That is a statement about the points already found, and it is
+        vacuous when only x=0 (height 0) is known; it says nothing about
+        points not yet found.
     """
     print("\n" + "="*70)
     print("FORMAL COMPLETENESS PROOF (Roadmap Step 3)")
@@ -110,19 +158,41 @@ def run_sufficiency_proof(height_bound, prime_subsets, mw_rank):
 
     print(f"Smallest Modulus (M_min) used: {min_M} (from subset {min_M_subset})")
 
-    # 3. Run the sufficiency proof
+    # 3a. The statement about the search box (what a completeness claim needs)
+    if m_height_bound is not None:
+        is_sufficient, details = prove_m_box_uniqueness(m_height_bound, min_M_subset)
+        print(f"m box: M_HEIGHT_BOUND = {details['m_height_bound']}")
+        print("Required (log-space): log(M_min) > log(2 * M_HEIGHT_BOUND^2)")
+        print(f"Actual log(M_min):   {details['log_M']:.2f}")
+        print(f"Required log(M_min): > {details['log_threshold']:.2f}")
+        print(f"M_min uniquely determines any m of naive height <= {details['h_certified']}")
+        if is_sufficient:
+            print("\n*** ✅ PASS ***")
+            print("Every subset modulus used is above 2*M_HEIGHT_BOUND^2, so a residue class")
+            print("contains at most one m in the box: reconstruction is unambiguous over the")
+            print("whole box, not just for the points that happened to be found.")
+            print("(This certifies reconstruction, not that every m in the box was visited;")
+            print(" the subset sampler and the graph's max_tests budget decide that.)")
+        else:
+            print("\n*** ⚠️  FAIL ***")
+            print("The smallest search modulus is NOT above 2*M_HEIGHT_BOUND^2, so a class")
+            print(f"can hold several m in the box and only m of height <= {details['h_certified']} are")
+            print("guaranteed to be recovered unambiguously.")
+            print("RECOMMENDATION: increase MIN_PRIME_SUBSET_SIZE / PRIME_POOL, or lower M_HEIGHT_BOUND.")
+        print("="*70)
+        return
+
+    # 3b. Legacy statement about the largest found point
     is_sufficient, details = prove_modulus_sufficiency(C_lll, height_bound, min_M_subset)
 
     print(f"Height Bound (H): {details['height_bound']:.2f}")
 
-    # --- FIX: Print log-domain values ---
     log_M_str = f"{details['log_M']:.2f}"
     log_thresh_str = f"{details['log_threshold']:.2f}"
 
     print(f"Required (in log-space): log(M) > log(2*C_lll) + H")
     print(f"Actual log(M):  {log_M_str}")
     print(f"Required log(M): > {log_thresh_str}")
-    # --- END FIX ---
 
     if is_sufficient:
         print("\n*** ✅ PASS ***")
