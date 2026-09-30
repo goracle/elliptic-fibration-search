@@ -47,11 +47,6 @@ MUMFORD_SEARCH = False      # True -> Jacobian rank / Mumford basis search inste
 # ACTIVE CURVE
 # ============================================================================
 
-# y^2 = x^5 + 2000x + 1   (coeffs are highest-degree first)
-COEFFS_GENUS2 = [QQ(0), QQ(1), QQ(0), QQ(0), QQ(0), QQ(2*10**6), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the search
-TERMINATE_WHEN_6 = 4          # stop once this many distinct rational x-coords are known
-
 COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(-2)]
 TERMINATE_WHEN_6 = 22
@@ -63,10 +58,26 @@ d={
         "terminate_when": 12,
 }
 
+d=    {
+        "coeffs": parse_hyperelliptic_db_entry('9995408:2498852:[x^8-x^6+x^3+2*x^2+x,x^2+x+1]'),
+        "data_pts": [QQ(0)],
+        "terminate_when": 5,
+}
+
+
+
+# y^2 = x^5 + 2000x + 1   (coeffs are highest-degree first)
+COEFFS_GENUS2 = [QQ(0), QQ(1), QQ(0), QQ(0), QQ(0), QQ(2*10**6), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the search
+TERMINATE_WHEN_6 = 4          # stop once this many distinct rational x-coords are known
+
+
 
 COEFFS_GENUS2 = d['coeffs']
 DATA_PTS_GENUS2 = d['data_pts']
 TERMINATE_WHEN_6 = d['terminate_when']*2
+
+
 
 # ============================================================================
 # STATIC CONFIG
