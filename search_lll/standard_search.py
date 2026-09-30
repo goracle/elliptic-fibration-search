@@ -669,7 +669,20 @@ def _discover_via_residue_graph(inp, acc, vecs_list, precomputed_residues):
     })
     _report_rail_effect(precomputed_residues, graph_residues, trace_ms, graph_vecs)
     # Is there any residue signal for the traced m at all, or only chance?
-    report_target_signal(graph_residues, PRIME_POOL, trace_ms, graph_vecs)
+    # Null = random m that passes the rail test, so count rail-passing residues per prime.
+    rail_pass = {}
+    try:
+        from .modularthread import _kronecker_prefilter_domain
+        for p in PRIME_POOL:
+            p = int(p)
+            if p <= 200000:
+                rail_pass[p] = len(_kronecker_prefilter_domain(
+                    p, range(p), inp.coeffs_genus2, inp.shift, None, inp.r_m))
+    except Exception as e:
+        print(f"[signal] exact rail counts unavailable ({e}); using ~(p+1)/2")
+        rail_pass = {}
+    report_target_signal(graph_residues, PRIME_POOL, trace_ms, graph_vecs,
+                         rail_pass=rail_pass or None)
     graph_tasks = [(vi, v, vi == 1) for vi, v in enumerate(graph_vecs, 1)]
     graph_workers = max(1, min(PARALLEL_PRIME_WORKERS, len(graph_tasks)))
     print(f"[residue_graph] scanning {len(graph_tasks)} vector(s) "

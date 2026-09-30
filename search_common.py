@@ -53,10 +53,20 @@ DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the sear
 TERMINATE_WHEN_6 = 4          # stop once this many distinct rational x-coords are known
 
 COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(-1)]
+DATA_PTS_GENUS2 = [QQ(-2)]
 TERMINATE_WHEN_6 = 22
 
 
+d={
+        "coeffs": [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)],
+        "data_pts": [QQ(1)],
+        "terminate_when": 12,
+}
+
+
+COEFFS_GENUS2 = d['coeffs']
+DATA_PTS_GENUS2 = d['data_pts']
+TERMINATE_WHEN_6 = d['terminate_when']*2
 
 # ============================================================================
 # STATIC CONFIG
@@ -96,7 +106,7 @@ M_HEIGHT_BOUND = None
 # silently rejects real points, so don't calibrate it from a couple of
 # small known points.
 PER_VECTOR_M_BOUND_C = None
-NUM_PRIME_SUBSETS = 250           # important for stability under different seeds; >= 250 recommended, currently set to 2 to turn it off so graph crt can do its thing
+NUM_PRIME_SUBSETS = 500           # important for stability under different seeds; >= 250 recommended, currently set to 2 to turn it off so graph crt can do its thing
 
 # NOTE: PRIME_POOL is set for real further down (after MIN_PRIME_SUBSET_SIZE),
 # once the modulus-sizing derivation is in scope -- see that block for why
