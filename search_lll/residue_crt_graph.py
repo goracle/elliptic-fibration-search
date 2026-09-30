@@ -46,7 +46,8 @@ from .rational_arithmetic import (
 )
 from .search_config import RationalReconstructionError
 from search_common import MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE
-from crt_bounds import box_slots, informative_threshold, clique_size_bounds
+from crt_bounds import (box_slots, informative_threshold, clique_size_bounds,
+                        null_pass_probability)
 
 
 MIN_MARGIN_OVER_BOX = 15
@@ -1540,6 +1541,12 @@ def build_residue_chains_ordered(
     span = order[:L]
 
     tested = kept = stable_stops = 0
+    # Null accounting: a 'trial' is a state actually lift-tested at its own H(M).
+    # Under the null (class unrelated to any real point) it passes with
+    # probability ~ fraction_count(H(M)) / M (denominators coprime to M only), so
+    # the expected number of passes is the sum of that over trials.
+    null_trials = observed_passes = 0
+    null_expected = 0.0
     chains, chain_len = [], []
     seen = set()
     stopped_reason = None
@@ -1550,11 +1557,16 @@ def build_residue_chains_ordered(
     while heap and stopped_reason is None:
         M, _, c, start, q, path = heapq.heappop(heap)
         frontier = M
+        rho_path = 1.0                 # density of denominators coprime to M (null model)
+        for _k in path:
+            rho_path *= _k[0] / (_k[0] + 1.0)
         for j in range(start, L):
             p = span[j]
             inv = pow(M, -1, p)
             M2 = M * p
             Hc = _confirm_height(M2, H, margin_i, square_den)
+            null_p = (null_pass_probability(M2, Hc, square_den, rho_path * p / (p + 1.0))
+                      if Hc >= 1 else 0.0)
             for nk in nodes_by_prime[p]:
                 if tested >= max_tests:
                     stopped_reason = f"max_tests@M~{M:.2e}"
@@ -1567,6 +1579,8 @@ def build_residue_chains_ordered(
                 new_q = None
                 confirmed = False
                 if Hc >= 1:
+                    null_trials += 1
+                    null_expected += null_p
                     if square_den:
                         if lift_full(c2, M2, Hc):
                             confirmed, key = True, (M2, c2)
@@ -1576,6 +1590,7 @@ def build_residue_chains_ordered(
                             confirmed, key, new_q = True, (int(hit[0]), int(hit[1])), (int(hit[0]), int(hit[1]))
                 if confirmed:
                     kept += 1
+                    observed_passes += 1
                     if key not in seen:
                         seen.add(key)
                         chains.append({
@@ -1633,6 +1648,9 @@ def build_residue_chains_ordered(
         "height_reached": reach,
         "strategy": "ordered",
         "trace": trace,
+        "null_trials": null_trials,
+        "null_expected_passes": null_expected,
+        "observed_passes": observed_passes,
     }
 
 

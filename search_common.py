@@ -47,14 +47,14 @@ MUMFORD_SEARCH = False      # True -> Jacobian rank / Mumford basis search inste
 # ACTIVE CURVE
 # ============================================================================
 
-COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(-1)]
-TERMINATE_WHEN_6 = 22
-
 # y^2 = x^5 + 2000x + 1   (coeffs are highest-degree first)
 COEFFS_GENUS2 = [QQ(0), QQ(1), QQ(0), QQ(0), QQ(0), QQ(2*10**6), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the search
 TERMINATE_WHEN_6 = 4          # stop once this many distinct rational x-coords are known
+
+COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(-1)]
+TERMINATE_WHEN_6 = 22
 
 
 
@@ -83,7 +83,9 @@ HEIGHT_BOUND_NON_MINIMAL = 2 * HEIGHT_BOUND  # doubled bound used for non-minima
 # size k grows like log(box)/log(p)), so don't leave it much bigger than needed.
 # Not tied to MAX_MODULUS: MAX_MODULUS is a *ceiling* that drops subsets whose
 # product is too big, not a floor on how big M must be.
-M_HEIGHT_BOUND = 1000 * 70
+# None (default): do NOT bound m by hand.  The residue pool decides: the graph's m box is
+# crt_bounds.pool_m_height_bound(primes with residues) = the largest H the pool's CRT
+# modulus can certify (margin * (2H+1)^2 < prod p).  Set an int only to force a smaller box.
 M_HEIGHT_BOUND = None
 
 # Optional per-vector tightening of the m bound from the Shioda-Tate height:

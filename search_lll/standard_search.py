@@ -38,6 +38,8 @@ from functools import partial
 from itertools import combinations
 
 from tqdm import tqdm
+from crt_bounds import pool_m_height_bound
+from .residue_signal import report_target_signal
 from sage.all import QQ, Integer, PolynomialRing, SR, primes, vector
 
 from .search_main import (
@@ -606,30 +608,52 @@ def _discover_via_residue_graph(inp, acc, vecs_list, precomputed_residues):
 
     trace_ms = _known_point_trace_ms(inp, mtarget_known)
 
-    # The box the graph certifies m in.  Independent of HEIGHT_BOUND, which only
-    # decides which multiples [n]P are scanned.
-    m_box = int(inp.sconf.get('M_HEIGHT_BOUND', M_HEIGHT_BOUND))
-    print(f"[residue_graph] m box: M_HEIGHT_BOUND={m_box} "
-          f"(|num| and den <= {m_box}); [n]P scan cutoff HEIGHT_BOUND={inp.sconf.get('HEIGHT_BOUND')}")
+    # The m box the graph certifies m in.  Independent of HEIGHT_BOUND, which only
+    # decides which multiples [n]P are scanned.  If M_HEIGHT_BOUND is None (the
+    # default) m is NOT bounded by hand: the box is whatever the residue pool can
+    # certify (crt_bounds.pool_m_height_bound: product of all pool primes that
+    # carry residues).  The graph still only confirms a chain at its own H(M),
+    # so this is a ceiling on reach, not a cost knob.
+    square_den = _square_den_applicable(inp)
+    _m_cfg = inp.sconf.get('M_HEIGHT_BOUND')
+    if _m_cfg is None:
+        _m_cfg = M_HEIGHT_BOUND
+    _pool_with_data = [int(p) for p in PRIME_POOL
+                       if precomputed_residues.get(p) or precomputed_residues.get(int(p))]
+    _pool_box = pool_m_height_bound(_pool_with_data, square_den=square_den)
+    if _m_cfg is None:
+        m_box = int(_pool_box)
+        print(f"[residue_graph] m box: derived from residue pool ({len(_pool_with_data)} primes, "
+              f"log10(prod)={sum(math.log10(p) for p in _pool_with_data):.1f}): "
+              f"|num|, den <= {m_box} (~10^{math.log10(max(m_box, 1)):.1f}); "
+              f"[n]P scan cutoff HEIGHT_BOUND={inp.sconf.get('HEIGHT_BOUND')}")
+    else:
+        m_box = int(_m_cfg)
+        print(f"[residue_graph] m box: M_HEIGHT_BOUND={m_box} (manual; pool could certify "
+              f"{_pool_box}); [n]P scan cutoff HEIGHT_BOUND={inp.sconf.get('HEIGHT_BOUND')}")
+    if m_box <= 0:
+        print("[residue_graph] !!! pool cannot certify any m height (too few primes with "
+              "residues); skipping graph discovery.")
+        return
     if mtarget_known is not None:
         _mt = QQ(mtarget_known)
         _h_mt = max(abs(int(_mt.numerator())), abs(int(_mt.denominator())))
         if _h_mt > m_box:
             print(f"[residue_graph] !!! target m={_mt} has naive height {_h_mt} > "
-                  f"M_HEIGHT_BOUND={m_box}: it is outside the box and cannot be found "
-                  f"this run.  Raise M_HEIGHT_BOUND in search_common.py.")
+                  f"m box {m_box}: it is outside the box and cannot be found this run.  "
+                  f"Enlarge PRIME_POOL (or raise M_HEIGHT_BOUND if set manually).")
 
     graph_vecs = [tuple(v) for v in vecs_list
                   if not (len(vecs_list) > 1 and all(c == 0 for c in v))]
     t_graph0 = time.time()
     found_by_vector = {}       # x -> [vectors that produced it]
+    null_tot = {'trials': 0, 'expected': 0.0, 'passed': 0, 'vectors': 0}
     trace_summary = {}         # (m, vector) -> ('confirmed'|'lost'|'unconfirmed', gen)
 
     # Vectors are independent, read-only graph builds, so they run in parallel.
     # Workers only compute; all recording into `acc` happens here, in vector order.
     # (_GRAPH_WORKER_STATE is search_main's dict; forked workers read it via COW.)
     _GRAPH_WORKER_STATE.clear()
-    square_den = _square_den_applicable(inp)
     print(f"[residue_graph] square-denominator mode: {square_den}")
     # rail_ok: drop residues whose induced x can't carry a rational y
     # (G(x) a non-residue mod p).  Real points always survive; ~half of
@@ -644,6 +668,8 @@ def _discover_via_residue_graph(inp, acc, vecs_list, precomputed_residues):
         'square_den': square_den,
     })
     _report_rail_effect(precomputed_residues, graph_residues, trace_ms, graph_vecs)
+    # Is there any residue signal for the traced m at all, or only chance?
+    report_target_signal(graph_residues, PRIME_POOL, trace_ms, graph_vecs)
     graph_tasks = [(vi, v, vi == 1) for vi, v in enumerate(graph_vecs, 1)]
     graph_workers = max(1, min(PARALLEL_PRIME_WORKERS, len(graph_tasks)))
     print(f"[residue_graph] scanning {len(graph_tasks)} vector(s) "
@@ -675,6 +701,13 @@ def _discover_via_residue_graph(inp, acc, vecs_list, precomputed_residues):
                       f"~10^{log10_of_naive_height(h_x):.1f} digits)  from m={m_val}, "
                       f"vector={v_orig_tuple}  [t={elapsed:.0f}s] ***")
 
+        _nl = res.get('null') or {}
+        if _nl.get('null_expected_passes') is not None:
+            null_tot['trials'] += int(_nl['null_trials'])
+            null_tot['expected'] += float(_nl['null_expected_passes'])
+            null_tot['passed'] += int(_nl['observed_passes'])
+            null_tot['vectors'] += 1
+
         for t in res['trace']:
             trace_summary[(t['m'], v_orig_tuple)] = (
                 ('confirmed', t['confirmed_gen']) if t.get('confirmed_gen') is not None
@@ -685,6 +718,18 @@ def _discover_via_residue_graph(inp, acc, vecs_list, precomputed_residues):
               f"{res['ncand']} confirmed chain(s) -> {n_lifted} reconstructed m -> "
               f"{n_on_curve} on the curve (y rational)")
 
+    if null_tot['vectors']:
+        from crt_bounds import poisson_upper_tail as _put
+        _e, _o = null_tot['expected'], null_tot['passed']
+        print(f"[residue_graph] NULL CHECK over {null_tot['vectors']} vector(s): "
+              f"{null_tot['trials']:,} states lift-tested; {_o:,} passed vs ~{_e:,.1f} expected "
+              f"if the residues carried no information about any real m "
+              f"(excess {_o - _e:+,.1f}, P(>=obs | chance) = {_put(_e, _o):.2g}).")
+        print("[residue_graph]   Reading it: 'expected' assumes each tested class is uniform mod M, "
+              "counts every fraction as its own class (denominators coprime to M), so it is an estimate (~5-10% high); it also treats states as independent, so the p-value is indicative only; a genuine chain adds "
+              "~1 pass before its children stable-stop.  Passes ~ expected => the confirmed chains are "
+              "what chance alone produces; a big excess is the only thing that would indicate signal. "
+              "Exact y-rationality remains the only confirmation of a point.")
     _print_graph_scoreboard(t_graph0, found_by_vector, trace_ms, trace_summary, graph_vecs)
     # (A per-target arc-consistency trace used to live here behind `and False`
     #  -- "too spammy, don't turn back on".  Removed; see

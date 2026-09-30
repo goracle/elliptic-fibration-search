@@ -106,7 +106,7 @@ def _resolve_height_bound(cd, current_sections, search_vecs, sconf, height_pairi
             print(f"[m_bound] degenerate bound {b} for vector {v_tuple} -- H is likely not "
                   f"positive definite for these sections; using flat M_HEIGHT_BOUND={flat}")
             return flat
-        bounds[v_tuple] = min(int(flat), int(b))
+        bounds[v_tuple] = int(b) if flat is None else min(int(flat), int(b))
     return bounds
 
 
@@ -244,6 +244,8 @@ def _graph_vector_worker(task):
         'ncand': len(rg_result['candidates']),
         'ms': ms,
         'trace': (rg_result.get('graph') or {}).get('trace', []),
+        'null': {k: (rg_result.get('graph') or {}).get(k)
+                 for k in ('null_trials', 'null_expected_passes', 'observed_passes')},
         'log': buf.getvalue(),
         'secs': time.time() - t0,
     }

@@ -509,6 +509,13 @@ def discover_candidates_via_residue_graph(precomputed_residues, prime_pool, heig
               f"edges={graph['edges_kept']}/{graph['edges_tested']} kept ({_keep:.1f}%) "
               f"chains={graph.get('chains_confirmed', 'n/a')} "
               f"gens={graph.get('max_generation_reached', 'n/a')}{_extra}")
+        if 'null_expected_passes' in graph:
+            from crt_bounds import poisson_upper_tail as _put
+            _obs = int(graph['observed_passes'])
+            _exp = float(graph['null_expected_passes'])
+            print(f"[residue_graph] v={v_tuple}: null check: {graph['null_trials']:,} states lift-tested, "
+                  f"{_obs:,} passed vs ~{_exp:,.1f} expected by chance "
+                  f"(excess {_obs - _exp:+,.1f}, P(>=obs | chance) = {_put(_exp, _obs):.2g})")
         for t in graph.get('trace', []):
             print(f"[residue_graph] v={v_tuple} trace m={t['m']}: "
                   + (f"CONFIRMED at gen {t['confirmed_gen']}" if t.get('confirmed_gen') is not None
