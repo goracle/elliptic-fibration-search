@@ -78,7 +78,17 @@ DATA_PTS_GENUS2 = d['data_pts']
 TERMINATE_WHEN_6 = d['terminate_when']*2
 
 
+COEFFS_GENUS2 = [QQ(1), QQ(-18290), QQ(-26127), QQ(668), QQ(26806), QQ(17002), QQ(4)]
+DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the search
+TERMINATE_WHEN_6 = 6          # stop once this many distinct rational x-coords are known
 
+
+COEFFS_GENUS2 = [QQ(0) for _ in range(22)]
+COEFFS_GENUS2[0] = 1
+COEFFS_GENUS2[-1] = 1
+COEFFS_GENUS2[-2] = 1
+DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the search
+TERMINATE_WHEN_6 = 4          # stop once this many distinct rational x-coords are known
 # ============================================================================
 # STATIC CONFIG
 # ============================================================================
@@ -122,7 +132,7 @@ NUM_PRIME_SUBSETS = 500           # important for stability under different seed
 # NOTE: PRIME_POOL is set for real further down (after MIN_PRIME_SUBSET_SIZE),
 # once the modulus-sizing derivation is in scope -- see that block for why
 # it's primes(5000) rather than primes(100).
-PRIME_POOL = list(primes(100))
+PRIME_POOL = list(primes(300))
 
 
 
@@ -277,6 +287,7 @@ if _IS_MAIN_PROCESS:
 DEBUG = True
 TARGETED_X = QQ(182)/QQ(141)
 TARGETED_X = QQ(10000)   # None to disable; or a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a target
+TARGETED_X = QQ(-8495)/QQ(9147)
 
 # DEBUG-ONLY CHEAT, do not leave on for real searches: when True, and TARGETED_X
 # is set, run_standard_lattice_search restricts prime_pool to ONLY the primes
@@ -1285,68 +1296,120 @@ def build_ns_basis_and_Q(cd, rho, mw_rank, chi):
     return basis_labels, Q, h_vec
 
 @PROFILE
+def _section_zero_intersection(R, chi):
+    """
+    Intersection number (R . O) of a section R with the zero section, for a
+    MINIMAL Weierstrass model over P^1_m with chi = e/12.
+
+    (R.O) = (1/2) * (total pole order of x(R)), counted at every finite place
+    and at m = infinity (where x has weight 2*chi, so the pole order there is
+    deg(num) - deg(den) - 2*chi when positive).  For R = O itself, (O.O) = -chi.
+    """
+    try:
+        if R.is_zero():
+            return QQ(-chi)
+    except Exception:
+        pass
+    x_aff = R[0] / R[2]
+    num = x_aff.numerator()
+    den = x_aff.denominator()
+    total = QQ(0)
+    # finite places: pole of x of order 2k at a place v means (R.O)_v = k
+    if den.degree() > 0:
+        for f, e in den.factor():
+            if e % 2 != 0:
+                raise RuntimeError(f"_section_zero_intersection: odd pole order {e} of x at {f}; "
+                                   f"model not minimal or section malformed")
+            total += QQ(e // 2) * f.degree()
+    # place at infinity
+    d_inf = int(num.degree()) - int(den.degree()) - int(2 * chi)
+    if d_inf > 0:
+        if d_inf % 2 != 0:
+            raise RuntimeError(f"_section_zero_intersection: odd pole order {d_inf} at infinity")
+        total += QQ(d_inf // 2)
+    return total
+
+def _gram_min_eigenvalue(H):
+    """Smallest eigenvalue of a symmetric rational Gram matrix (floating point)."""
+    from sage.all import RDF   # not imported at module level in this file
+    ev = H.change_ring(RDF).eigenvalues()
+    vals = []
+    for e in ev:
+        try:
+            vals.append(float(e.real()))
+        except Exception:
+            vals.append(float(e))
+    return min(vals) if vals else 0.0
+
 def compute_canonical_height_matrix(sections, cd):
     """
-    Compute the canonical height pairing matrix <P_i, P_j> using the
-    explicit Shioda-Tate formula:
-    <P,Q> = chi + (P.O) + (Q.O) - (P.Q) - sum_v contr_v(P,Q)
+    Neron-Tate height pairing matrix <P_i, P_j> for sections of an elliptic
+    surface over P^1, via
+        h(R)    = 2*chi + 2*(R.O) - contr(R)
+        <P,Q>   = ( h(P+Q) - h(P) - h(Q) ) / 2
+                = -chi + ((P+Q).O) - (P.O) - (Q.O) - C(P,Q)
+    where (R.O) is computed from the pole divisor of x(R) and C(P,Q) is the sum
+    of local fiber corrections.  (The previous implementation took (P.O) from a
+    polarization of the degree height and used the same polarization for (P.Q);
+    neither is an intersection number, and the resulting matrix was not
+    positive semidefinite.)
+    Raises RuntimeError if the result is not positive semidefinite, since a
+    Neron-Tate Gram matrix always is.
     """
     n = len(sections)
     if n == 0:
         return matrix(QQ, 0)
 
-    # 1. Compute naive intersection matrix for the (P.Q) term
-    H_naive = matrix(QQ, n)
-    for i in range(n):
-        for j in range(i, n):
-            val = QQ(naive_pairing(sections[i], sections[j]))
-            H_naive[i, j] = val
-            H_naive[j, i] = val
-
-    # 2. Get Euler characteristic (chi) and singular fiber data
     fibers_data = find_singular_fibers(cd)
     fibers = fibers_data.get('fibers', [])
     euler_total = fibers_data.get('euler_characteristic', None)
-
     if euler_total is None:
         raise ValueError("Could not determine total Euler characteristic from find_singular_fibers.")
-    # chi = e/12, where e is the sum of Euler numbers of singular fibers
     chi = QQ(euler_total) / QQ(12)
+    if chi.denominator() != 1:
+        raise RuntimeError(f"compute_canonical_height_matrix: chi={chi} is not an integer; "
+                           f"model is not a minimal elliptic surface over P^1")
 
-    # 3. Compute the local contributions matrix C = sum_v contr_v(P,Q)
-    C = matrix(QQ, n)
     try:
         m_sym = cd.a4.parent().gen()
     except Exception:
         raise AttributeError("Could not get generator 'm' from cd.a4.parent()")
 
-    for i in range(n):
-        for j in range(i, n):
-            total_corr = QQ(0)
-            for fiber in fibers:
-                # local_pairing_contribution should be defined elsewhere
-                total_corr += QQ(local_pairing_contribution(sections[i], sections[j], fiber, cd, m_sym))
-            C[i, j] = total_corr
-            C[j, i] = total_corr
+    # h(R) = 2*chi + 2*(R.O) - sum_v contr_v(R,R);  <P,Q> = (h(P+Q) - h(P) - h(Q))/2.
+    # (Only DIAGONAL local terms are used, so no component-orientation bookkeeping is needed.)
+    def _h(R):
+        corr = QQ(0)
+        for fiber in fibers:
+            corr += QQ(local_self_contribution(R, fiber, cd, m_sym))
+        po = _section_zero_intersection(R, chi)
+        return 2 * chi + 2 * po - corr, po
 
-    # 4. Compute intersection with the zero section, (P.O)
-    PO = [None] * n
-    O2 = -chi  # Self-intersection of the zero section is -chi
+    hs, PO = [], []
+    for P in sections:
+        hP, po = _h(P)
+        assert po >= 0, f"(P.O)={po} < 0 for a nonzero section: model/minimality problem"
+        assert hP >= 0, f"canonical height {hP} < 0: local corrections or (P.O) wrong"
+        hs.append(hP); PO.append(po)
 
-    # Fallback heuristic: (P.O) = (P^2 - O^2) / 2 = ( (P.P) - (-chi) ) / 2
-    # This is standard when an explicit zero section object isn't available.
-    for i in range(n):
-        P2 = H_naive[i, i]  # This is (P_i . P_i)
-        PO[i] = (P2 - O2) / QQ(2)
-
-    # 5. Assemble the final height matrix using the formula
     H = matrix(QQ, n)
     for i in range(n):
-        for j in range(i, n):
-            val = chi + PO[i] + PO[j] - H_naive[i, j] - C[i, j]
+        H[i, i] = hs[i]
+        for j in range(i + 1, n):
+            hPQ, _ = _h(sections[i] + sections[j])
+            val = (hPQ - hs[i] - hs[j]) / 2
             H[i, j] = val
             H[j, i] = val
 
+    lam = _gram_min_eigenvalue(H)
+    if lam < -1e-9:
+        raise RuntimeError(f"compute_canonical_height_matrix: Gram matrix is not positive semidefinite "
+                           f"(min eigenvalue {lam:.6g}); height computation is wrong "
+                           f"(check local_pairing_contribution / minimality at infinity).")
+    # Shioda-Tate / Lefschetz upper bound: rank MW <= 10*chi - 2 - Sigma (= 8 - Sigma for chi=1).
+    sigma_tot = int(fibers_data.get('sigma_sum', 0) or 0)
+    bound = 10 * int(chi) - 2 - sigma_tot
+    assert H.rank() <= bound, (f"height Gram matrix has rank {H.rank()} > Shioda-Tate bound {bound} "
+                               f"(chi={chi}, Sigma={sigma_tot}): heights or sections are wrong")
     return H
 
 # ==============================================================================
@@ -2405,6 +2468,14 @@ def check_independence(sections, curve, cd):
         raise RuntimeError(f"check_independence (QQ): determinant computation failed: {e}")
 
     independent = (det != 0)
+
+    # A Neron-Tate Gram matrix is positive semidefinite.  If not, the heights are
+    # wrong and "det != 0" certifies nothing; refuse rather than continue (an
+    # indefinite form also makes LLL loop forever).
+    lam_min = _gram_min_eigenvalue(H)
+    if lam_min < -1e-9:
+        raise RuntimeError(f"check_independence (QQ): height matrix is not positive semidefinite "
+                           f"(min eigenvalue {lam_min:.6g}); det={det} is meaningless")
 
     print(f"  Height matrix determinant: {det}")
     print(f"  Result: {'independent' if independent else 'DEPENDENT'}")

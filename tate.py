@@ -675,6 +675,78 @@ def local_pairing_contribution(P, Q, fiber_data, curve_data, var_sym):
 
     return 0
 
+def local_self_contribution(R, fiber_data, curve_data, var_sym):
+    """
+    contr_v(R,R): local correction to the Neron-Tate height of the section R at one fiber,
+        h(R) = 2*chi + 2*(R.O) - sum_v contr_v(R,R).
+    Only the diagonal is needed (the off-diagonal pairing is obtained from h(P+Q)-h(P)-h(Q)).
+
+    IMPLEMENTED FOR I_n WITH n <= 2 ONLY (raises NotImplementedError otherwise, deliberately):
+      I_2 : contr = 1/2 iff R reduces to the NODE of the Weierstrass fiber, else 0.
+    For y^2 = x^3 + a4 x + a6 with v_c(Delta) = 2, a4(c) != 0, the node is at y = 0,
+    x0 = -3 a6(c) / (2 a4(c)).  A section meeting the zero section (pole of x) is on the
+    identity component.
+    """
+    n = fiber_data.get('n') or 0
+    symbol = str(fiber_data.get('symbol'))
+    # smooth / nodal-with-one-component fibers contribute nothing. Dispatch on the SYMBOL first:
+    # find_singular_fibers labels I0 at infinity (vD_min = 0) as type 'additive'.
+    if symbol in ('I0', 'I1'):
+        return QQ(0)
+    if symbol == 'III':
+        # Type III: component group Z/2.  A section is on the non-identity component iff it
+        # reduces to the singular point of the Weierstrass fiber, which for a4(c)=a6(c)=0 is (0,0).
+        # contr = 1/2 there, 0 on the identity component (or when the section meets O).
+        if fiber_data.get('root_type') != 'rational':
+            raise NotImplementedError(f"local_self_contribution: III at non-rational place "
+                                      f"{fiber_data.get('r')} not implemented")
+        try:
+            if R.is_zero():
+                return QQ(0)
+        except Exception:
+            pass
+        c = QQ(fiber_data['r'])
+        ainv = curve_data.E_weier.a_invariants()
+        assert ainv[0] == 0 and ainv[1] == 0 and ainv[2] == 0, \
+            f"local_self_contribution: expects short Weierstrass, got {ainv}"
+        assert ainv[3].denominator()(c) != 0 and ainv[4].denominator()(c) != 0, "a4/a6 pole at III center"
+        assert QQ(ainv[3](c)) == 0 and QQ(ainv[4](c)) == 0, \
+            f"m={c}: a4(c), a6(c) not both 0, so this is not a type III fiber of the minimal model"
+        x_aff = R[0] / R[2]
+        if x_aff.denominator()(c) == 0:
+            return QQ(0)
+        return QQ(1)/2 if x_aff(c) == 0 else QQ(0)
+    if fiber_data.get('type') != 'multiplicative' or n <= 1:
+        if fiber_data.get('type') == 'additive':
+            raise NotImplementedError(f"local_self_contribution: additive fiber {symbol} not implemented")
+        return QQ(0)
+    if n != 2:
+        raise NotImplementedError(f"local_self_contribution: I_{n} not implemented (only I_2); "
+                                  f"component index needs more than the x-valuation")
+    if fiber_data.get('root_type') != 'rational':
+        raise NotImplementedError(f"local_self_contribution: I_2 at non-rational place "
+                                  f"{fiber_data.get('r')} not implemented")
+    try:
+        if R.is_zero():
+            return QQ(0)
+    except Exception:
+        pass
+    c = QQ(fiber_data['r'])
+    E = curve_data.E_weier          # EllipticCurve over QQ(m); (E_curve is the affine plane curve)
+    ainv = E.a_invariants()
+    assert ainv[0] == 0 and ainv[1] == 0 and ainv[2] == 0, \
+        f"local_self_contribution: expects short Weierstrass y^2=x^3+a4x+a6, got a-invariants {ainv}"
+    assert ainv[3].denominator().degree() == 0 or ainv[3].denominator()(c) != 0, "a4 has a pole at c"
+    assert ainv[4].denominator().degree() == 0 or ainv[4].denominator()(c) != 0, "a6 has a pole at c"
+    a4c = QQ(ainv[3](c)); a6c = QQ(ainv[4](c))
+    assert 4*a4c**3 + 27*a6c**2 == 0, f"m={c} is not a root of the discriminant of the minimal model"
+    assert a4c != 0, f"m={c}: a4(c)=0 so this is not an I_n fiber of the minimal model"
+    x0 = -3*a6c / (2*a4c)
+    x_aff = R[0] / R[2]
+    if x_aff.denominator()(c) == 0:          # R meets O  => identity component
+        return QQ(0)
+    return QQ(1)/2 if x_aff(c) == x0 else QQ(0)
+
 def validate_tates_algorithm():
     """
     Validate Tate's algorithm against known results for Legendre fibration.
@@ -995,9 +1067,9 @@ def kodaira_components_count(sym):
     if s.startswith('I') and s.endswith('*'):
         try:
             n = int(s[1:-1])
-            return n + 6      # I_n* has n+6 components
-        except Exception:
-            return 7
+        except Exception as e:
+            raise ValueError(f"kodaira_components_count: cannot parse I_n* symbol {sym!r}: {e}")
+        return n + 5      # I_n* has n+5 components (extended D_{n+4}); Euler number is n+6
     mapping = {'II': 1, 'III': 2, 'IV': 3, 'II*': 9, 'III*': 8, 'IV*': 7}
     return mapping.get(s, 1)
 
@@ -1112,42 +1184,15 @@ def shioda_tate_from_fiber_list(fibers, rho_geom=None, debug=False, return_diagn
 
 def classify_from_minimal_vals(v4, v6, vD):
     """
-    Classify fiber type from minimal valuations (v_c4, v_c6, v_D).
-    This uses the standard Kodaira classification table.
+    Classify fiber type from minimal valuations (v_c4, v_c6, v_D) using Tate's conditions
+    (see diagnostics2.kodaira_type_from_minimal_vals); raises ValueError on inconsistent input.
     """
-    # Smooth fiber
-    if vD <= 0:
-        return 'I0', 'smooth'
-
-    # Multiplicative I_n: v_c4 = v_c6 = 0, v_D >= 1
-    if v4 == 0 and v6 == 0 and vD >= 1:
-        return f'I{vD}', 'multiplicative'
-
-    # Additive fibers - match against standard table
-    # Key: (v_c4, v_c6, v_D) -> symbol
-    additive_table = {
-        (1, 1, 2): 'II',
-        (1, 2, 3): 'III',
-        (2, 3, 4): 'IV',
-        (2, 3, 6): 'I0*',
-        (3, 4, 8): 'IV*',
-        (3, 5, 9): 'III*',
-        (4, 5, 10): 'II*',
-    }
-
-    key = (v4, v6, vD)
-    if key in additive_table:
-        return additive_table[key], 'additive'
-
-    # I_n* pattern: v_c4 >= 2, v_c6 >= 3, v_D >= 6
-    # General I_n* has v_D = n + 6
-    if v4 >= 2 and v6 >= 3 and vD >= 6:
-        n = vD - 6
-        return f'I{n}*', 'additive'
-
-    # Fallback for unrecognized additive pattern
-    # Return a placeholder that will be caught during height pairing
-    return f'AdditiveFiber({v4},{v6},{vD})', 'additive'
+    sym = kodaira_type_from_minimal_vals(v4, v6, vD)
+    if sym == 'I0':
+        return sym, 'smooth'
+    if sym.startswith('I') and not sym.endswith('*'):
+        return sym, 'multiplicative'
+    return sym, 'additive'
 
 # Then in tates_algorithm, use it like this:
 

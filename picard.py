@@ -52,40 +52,74 @@ def reduce_section_mod_ell(sec, cd_ell, debug=False):
 
 def rank_upper_bound_over_fq_t(cd_ell, current_sections, prime_pool, verbose=True):
     """
-    Estimate rank over \bar{F_ell}(t).
+    Return (r, []) where r is a certified LOWER bound on the rank of the reduced
+    sections over \\bar{F_ell}(t), or (None, []) if the reduced sections cannot be
+    shown to be fully independent.
+
+    A reduced rank below len(current_sections) means the reduction is not
+    faithful to characteristic 0 (a dependence appeared only after reducing).
+    Such an ell must be discarded by the caller.  It must NOT be reported as a
+    smaller rank, because this number feeds a bound on rho(S_ell): a smaller
+    reduced rank would produce a smaller "upper bound" and can drop it below the
+    characteristic-0 lower bound.
     """
     if not current_sections:
         return 0, []
 
+    n_sec = len(current_sections)
+    rank_lb = None
     try:
         independent, H = check_independence(current_sections, None, cd_ell)
-        rank_lb = H.rank() if independent else max(0, len(current_sections) - 1)
+        if independent:
+            rank_lb = int(H.rank())
+        elif verbose:
+            print(f"[rank_over_fq(t)] ell={int(cd_ell.base_field.characteristic())}: height pairing shows dependence among reduced sections")
     except Exception:
+        # Fallback test: absence of a witnessed relation in a bounded search.
+        # This is only a heuristic (no witness found != independent).
         independent, witness = check_independence_over_finite_field(
             current_sections, cd_ell,
             primes_to_test=tuple(prime_pool),
             max_m0s=6,
             verbose=False
         )
-        rank_lb = len(current_sections) if independent else max(0, len(current_sections) - 1)
-        if not independent and verbose:
+        if independent:
+            rank_lb = n_sec
+        elif verbose:
             print(f"[fallback] dependence witnessed mod ell={int(cd_ell.base_field.characteristic())}: {witness}")
 
+    if rank_lb is not None and rank_lb < n_sec:
+        rank_lb = None
+
     if verbose:
-        print(f"[rank_over_fq(t)] independent reduced sections: {rank_lb}")
+        print(f"[rank_over_fq(t)] independent reduced sections: {rank_lb if rank_lb is not None else 'not certified (ell unusable)'}")
     return rank_lb, []
 
 def shioda_tate_upper_bound_mod_ell(cd_ell, current_sections, prime_pool, verbose=True):
     """
-    Compute rho_upper(ell) = 2 + rank(MW over \bar{F_ell}(t)) + sum_v (m_v - 1).
+    Compute L(ell) = 2 + (certified rank of reduced sections) + sum_v (m_v - 1).
+
+    NOTE: this is a LOWER bound for rho(S_ell) (Shioda-Tate over F_ell with a
+    sub-lattice of MW).  It is NOT an upper bound for rho(S) and must never be
+    used as one.  A genuine upper bound needs rho(S_ell) itself (Frobenius
+    eigenvalues on H^2 from point counts, Artin-Tate / Van Luijk).
     """
     singfibs_ell = find_singular_fibers(a4=cd_ell.a4, a6=cd_ell.a6, verbose=False)
     sum_contrib = int(singfibs_ell['sigma_sum'])
     rank_lb, _ = rank_upper_bound_over_fq_t(cd_ell, current_sections, prime_pool, verbose=verbose)
+    if rank_lb is None:
+        # Reduced sections not certified independent: no usable bound from this ell.
+        return None, {
+            'ell': cd_ell.base_field.characteristic(),
+            'rank_lb': None,
+            'sum_contrib': sum_contrib,
+            'fibers': singfibs_ell['fibers'],
+            'unusable': 'reduced sections not certified independent'
+        }
     rho_upper = 2 + rank_lb + sum_contrib
 
     if verbose:
-        print(f"[mod {cd_ell.base_field.characteristic()}] sum fiber contrib = {sum_contrib}, rank>= {rank_lb} => rho_upper <= {rho_upper}")
+        print(f"[mod {cd_ell.base_field.characteristic()}] sum fiber contrib = {sum_contrib}, rank>= {rank_lb} => rho(S_ell) >= {rho_upper}   (lower bound only)")
 
     return rho_upper, {
         'ell': cd_ell.base_field.characteristic(),
@@ -123,7 +157,40 @@ def picard_via_van_luijk(cd, current_sections, prime_pool, ell_candidates=None, 
     singfibs = find_singular_fibers(cd, verbose=False)
     sigma_sum = int(singfibs.get('sigma_sum', 0))
 
+    euler = int(singfibs.get('euler_characteristic', 0))
+    chi = QQ(euler) / 12
+
     mw_rank = _estimate_mw_rank_from_sections(current_sections, cd)
+
+    # ---- Exact case: rational elliptic surface (chi = 1, e = 12) ----------------
+    # For a relatively minimal, non-constant elliptic surface with chi = 1, S is
+    # rational over the algebraic closure, so rho = b_2 = 10 exactly and Shioda-Tate
+    # gives rank MW(\bar K) = 8 - sum_v (m_v - 1).  No reduction argument is needed
+    # (and none can improve on this), so we return the exact value immediately.
+    if chi == 1:
+        rank_geom = 8 - sigma_sum
+        if verbose:
+            print(f"[chi=1] rational elliptic surface: rho = 10 exactly, "
+                  f"geometric MW rank = 8 - {sigma_sum} = {rank_geom}")
+        if rank_geom < 0 or mw_rank > rank_geom:
+            raise RuntimeError(
+                f"Inconsistent data for chi=1: {mw_rank} independent sections but "
+                f"geometric rank is only 8 - {sigma_sum} = {rank_geom}. "
+                f"Check minimality of the model / fiber classification.")
+        return {
+            'lower_bound': 10,
+            'reduction_lower_bounds': [],
+            'upper_bounds': [],          # kept (empty) so old callers do not KeyError
+            'rho': 10,
+            'rho_rigorous': True,
+            'rho_method': 'rational elliptic surface (chi=1): rho = 10',
+            'chi': chi,
+            'mw_rank_geometric': rank_geom,
+            'mw_rank_found': int(mw_rank),
+            'sections_span_finite_index': bool(mw_rank == rank_geom),
+            'collapsed_primes': []
+        }
+
     assert mw_rank > 0, mw_rank
     if verbose:
         print(f"[char 0] Using mw_rank = {mw_rank}. Σ(m_v-1) = {sigma_sum}")
@@ -173,11 +240,26 @@ def picard_via_van_luijk(cd, current_sections, prime_pool, ell_candidates=None, 
             # 2) compute Shioda-Tate upper bound info for ell
             rho_upper, info = shioda_tate_upper_bound_mod_ell(cd_ell, current_sections, prime_pool, verbose=verbose)
 
+            # 2a) reduced sections not certified independent -> discard this ell
+            if rho_upper is None:
+                collapsed_primes.append(ell)
+                if verbose:
+                    print(f"[skip] ell={ell}: {info.get('unusable', 'unusable')}.")
+                continue
+
             # 3) if the fiber contribution collapsed on reduction, skip this ell as well
             if info['sum_contrib'] < sigma_sum:
                 collapsed_primes.append(info['ell'])
                 if verbose:
                     print(f"[skip] ell={info['ell']} collapsed fiber contribution ({info['sum_contrib']} < {sigma_sum}).")
+                continue
+
+            # 4) sanity: a valid upper bound can never lie below the char-0 lower bound.
+            #    If it does, the bound (or the section bookkeeping) is broken for this ell.
+            if rho_upper < rho_lower:
+                collapsed_primes.append(ell)
+                if verbose:
+                    print(f"[skip] ell={ell}: rho_upper={rho_upper} < rho_lower={rho_lower}; inconsistent, discarding.")
                 continue
 
             # If we reach here, ell is usable for an upper bound
@@ -192,23 +274,26 @@ def picard_via_van_luijk(cd, current_sections, prime_pool, ell_candidates=None, 
     if not upper_bounds:
         raise RuntimeError("No usable upper bounds from the provided primes.")
 
-    best_upper, best_info = min(upper_bounds, key=lambda t: t[0])
+    best_lb, best_info = max(upper_bounds, key=lambda t: t[0])
     if verbose:
-        print(f"[summary] lower >= {rho_lower}, best upper <= {best_upper} at ell={best_info['ell']}")
+        print(f"[summary] char-0 lower bound rho >= {rho_lower}; "
+              f"best mod-ell lower bound rho(S_ell) >= {best_lb} at ell={best_info['ell']}")
         if collapsed_primes:
             print(f"[collapsed fiber contribution / reduction-dependence primes] {sorted(set(collapsed_primes))}")
+        print("[caveat] The mod-ell numbers are LOWER bounds on rho(S_ell). They give no upper bound "
+              "on rho(S), so rho is NOT concluded here. A rigorous upper bound needs rho(S_ell) "
+              "(Frobenius eigenvalues from point counts) and is not implemented for chi >= 2.")
 
-    rho = None
-    if best_upper == rho_lower:
-        rho = rho_lower
-    elif best_upper == rho_lower + 1:
-        # TODO: optional Van Luijk discriminant check
-        pass
-
+    # Never conclude rho from lower bounds.  The old rule (best 'upper' == lower => rho = lower)
+    # compared two lower bounds and was unsound.
     return {
         'lower_bound': rho_lower,
-        'upper_bounds': upper_bounds,
-        'rho': rho,
+        'reduction_lower_bounds': upper_bounds,
+        'upper_bounds': [],              # intentionally empty: no rigorous upper bound is computed
+        'rho': None,
+        'rho_rigorous': False,
+        'rho_method': None,
+        'chi': chi,
         'collapsed_primes': sorted(set(collapsed_primes))
     }
 

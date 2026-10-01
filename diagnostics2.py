@@ -617,57 +617,66 @@ def compute_euler_and_chi(cd_or_finder_result):
         print(f"Warning: Euler sum = {euler_sum} gives non-integer chi = {chi_q}; check fiber data.")
     return euler_sum, chi_q
 
+def kodaira_type_from_minimal_vals(v4, v6, vD):
+    """
+    Kodaira symbol for y^2 = x^3 + a4 x + a6 from MINIMAL valuations (v(a4), v(a6), v(Delta))
+    (equal to v(c4), v(c6) in residue characteristic 0).  Tate's conditions, not a lookup:
+      II  : v6 == 1                      (vD == 2)
+      III : v4 == 1, v6 >= 2             (vD == 3)
+      IV  : v4 >= 2, v6 == 2             (vD == 4)
+      I_n*: v4 >= 2, v6 >= 3, and (v4 == 2 or v6 == 3)   (vD == 6 + n)
+      IV* : v4 >= 3, v6 == 4             (vD == 8)
+      III*: v4 == 3, v6 >= 5             (vD == 9)
+      II* : v4 >= 4, v6 == 5             (vD == 10)
+    Raises ValueError on non-minimal input or if vD disagrees with the type.
+    """
+    v4, v6, vD = int(v4), int(v6), int(vD)
+    if vD <= 0:
+        return 'I0'
+    if v4 == 0 or v6 == 0:
+        # c4 or c6 a unit; with vD > 0 this forces both units: multiplicative
+        if not (v4 == 0 and v6 == 0):
+            raise ValueError(f"inconsistent valuations (v4,v6,vD)=({v4},{v6},{vD})")
+        return f'I{vD}'
+    if v4 >= 4 and v6 >= 6:
+        raise ValueError(f"non-minimal valuations (v4,v6,vD)=({v4},{v6},{vD})")
+    if v6 == 1:
+        sym, want = 'II', 2
+    elif v4 == 1:
+        sym, want = 'III', 3
+    elif v6 == 2:
+        sym, want = 'IV', 4
+    elif v4 == 2 or v6 == 3:
+        if vD < 6:
+            raise ValueError(f"inconsistent valuations (v4,v6,vD)=({v4},{v6},{vD})")
+        return f'I{vD - 6}*'
+    elif v6 == 4:
+        sym, want = 'IV*', 8
+    elif v4 == 3:
+        sym, want = 'III*', 9
+    else:
+        sym, want = 'II*', 10
+    if vD != want:
+        raise ValueError(f"inconsistent valuations for {sym}: (v4,v6,vD)=({v4},{v6},{vD}), expected vD={want}")
+    return sym
+
+_KODAIRA_MV_E = {'II': (1, 2), 'III': (2, 3), 'IV': (3, 4), 'I0*': (5, 6),
+                 'IV*': (7, 8), 'III*': (8, 9), 'II*': (9, 10)}
+
 def _kodaira_from_min_vals(v4_min, v6_min, vD_min):
     """Return (symbol, m_v, e_contribution) from minimal valuations."""
-    # CRITICAL: Convert all inputs to plain Python int to ensure dict lookup works
-    v4_min = int(v4_min)
-    v6_min = int(v6_min)
     vD_min = int(vD_min)
-
-    # Handle smooth/non-singular case correctly
     if vD_min == 0:
         return ('I0', 1, 0)
     if vD_min < 0:
-        return (None, 1, 0) # Not a singular fiber
-
-    # multiplicative
-    if v4_min == 0 and v6_min == 0:
-        sym = f"I{vD_min}"
-        m_v = vD_min
-        e = vD_min
+        return (None, 1, 0)  # Not a singular fiber
+    sym = kodaira_type_from_minimal_vals(v4_min, v6_min, vD_min)
+    if sym in _KODAIRA_MV_E:
+        m_v, e = _KODAIRA_MV_E[sym]
         return (sym, m_v, e)
+    if sym.endswith('*'):
+        n = int(sym[1:-1])
+        return (sym, n + 5, n + 6)  # I_n*: n+5 components, Euler number n+6
+    n = int(sym[1:])
+    return (sym, n, n)  # I_n
 
-    # additive special cases (standard table)
-    tbl = {
-        (1,1,2): ("II", 1, 2),
-        (1,2,3): ("III", 2, 3),
-        (2,3,4): ("IV", 3, 4),
-        (2,3,6): ("I0*", 6, 6),
-        (3,4,8): ("IV*", 7, 8),
-        (3,5,9): ("III*", 8, 9),
-        (4,5,10):("II*", 9, 10),
-    }
-
-    # Exact lookup with converted integers
-    tup = (v4_min, v6_min, vD_min)
-    if tup in tbl:
-        return tbl[tup]
-
-    # star-family: vD_min >= 6 and v4_min >= 2 and v6_min >= 3 -> I_n* with n = vD_min - 6
-    if vD_min >= 6 and v4_min >= 2 and v6_min >= 3:
-        n = vD_min - 6
-        sym = f"I{n}*"
-        m_v = n + 6
-        e = n + 6
-        return (sym, m_v, e)
-
-    # Improved fallback: at least try to classify as additive vs multiplicative
-    # and use a reasonable default contribution
-    if v4_min == 0 and v6_min == 0:
-        # multiplicative but vD_min < 0 shouldn't happen; return I0
-        return ('I0', 1, 0)
-    else:
-        # additive but unrecognized pattern
-        # Use a conservative default: treat as additive with some minimal contribution
-        # You could also log a warning here if needed
-        return (f"IV", 3, 4)  # Default to IV (which has (2,3,4)); safest guess

@@ -1969,57 +1969,49 @@ def interpolate_Q_general(pts_xy, f_expr, degQ, x_sym, seed_int=SEED_INT, force_
 
     # === QQ / SR mode ===
     if FINITE_FIELD is None:
-        coeffs_sym = [SR.var(name) for name in coeff_names]
-        Q_poly_sym = sum(coeffs_sym[i] * (x_sym ** i) for i in range(ncoeff))
-
-        max_order = min(5, degQ)
-
-        f_derivs = {0: f_expr}
-        Q_derivs = {0: Q_poly_sym}
-        for order in range(1, max_order + 1):
-            f_derivs[order] = kth_derivative(f_expr, order, x_sym)
-            Q_derivs[order] = kth_derivative(Q_poly_sym, order, x_sym)
-
-        mandatory_constraints = []
-        derivative_pool = []
-
-        for x_src, yi in pts_xy:
-            xi_sr = SR(x_src)
-            yi_sr = SR(yi)
-
-            mandatory_constraints.append(Q_derivs[0].subs({x_sym: xi_sr}) == yi_sr)
-
-            for order in range(1, max_order + 1):
-                if order > degQ:
-                    break
-                constraint = compute_implicit_derivative_constraint(order, xi_sr, yi_sr, f_derivs, Q_derivs, x_sym)
-                if constraint is not None:
-                    derivative_pool.append(constraint)
-
-        num_constraints_needed = ncoeff
-        num_remaining_needed = num_constraints_needed - len(mandatory_constraints)
-
-        assert num_remaining_needed >= 0, \
-            f"interpolate_Q_general: too many mandatory constraints ({len(mandatory_constraints)}) for degQ={degQ}"
-        assert len(derivative_pool) >= num_remaining_needed, \
-            f"interpolate_Q_general: not enough derivative constraints ({len(derivative_pool)}) for degQ={degQ}"
-
-        chosen_derivs = derivative_pool[:num_remaining_needed]
-        all_constraints = mandatory_constraints + chosen_derivs
-
-        #print(f"[interpolate_Q_general] QQ mode: {len(mandatory_constraints)} value + {len(chosen_derivs)} derivative constraints")
-        sys.stdout.flush()
-
-        sol_list = solve(all_constraints, coeffs_sym, solution_dict=True)
-
-        if not sol_list:
-            raise RuntimeError("interpolate_Q_general: no solution found during symbolic interpolation")
-
-        sol_map = sol_list[0]
-        solved_coeffs = [QQ(sol_map[name_sym]) for name_sym in coeffs_sym]
-
+        # Exact QQ linear algebra on Taylor jets of y = sqrt(f) at each point.
+        # Same constraint system (and ordering) as the old SR solve, without SR.
+        max_order = degQ  # jet must be able to reach order degQ when few points are known
         R = PolynomialRing(QQ, 'x')
-        Qx = R(solved_coeffs)
+        try:
+            f_poly = R(f_expr)
+        except Exception:
+            f_poly = R(SR(f_expr).polynomial(QQ).list())
+        t = R.gen()
+
+        rows, rhs = [], []
+        pool_rows, pool_rhs = [], []
+        for x_src, yi in pts_xy:
+            x0 = QQ(x_src)
+            y0 = QQ(yi)
+            rows.append([x0**i for i in range(ncoeff)])
+            rhs.append(y0)
+            if y0 == 0:
+                continue  # implicit derivative undefined at y=0 (matches old behavior)
+            Fc = f_poly(t + x0).list()  # Taylor coeffs of f at x0
+            ys = [y0]
+            for n in range(1, max_order + 1):
+                cross = sum(ys[k] * ys[n - k] for k in range(1, n))
+                Fn = Fc[n] if n < len(Fc) else QQ(0)
+                ys.append((Fn - cross) / (2 * y0))
+            for k in range(1, max_order + 1):
+                pool_rows.append([QQ(binomial(i, k)) * x0**(i - k) if i >= k else QQ(0)
+                                  for i in range(ncoeff)])
+                pool_rhs.append(ys[k])
+
+        num_remaining_needed = ncoeff - len(rows)
+        assert num_remaining_needed >= 0, \
+            f"interpolate_Q_general: too many mandatory constraints ({len(rows)}) for degQ={degQ}"
+        assert len(pool_rows) >= num_remaining_needed, \
+            f"interpolate_Q_general: not enough derivative constraints ({len(pool_rows)}) for degQ={degQ}"
+
+        A = Matrix(QQ, rows + pool_rows[:num_remaining_needed])
+        bvec = vector(QQ, rhs + pool_rhs[:num_remaining_needed])
+        try:
+            sol = A.solve_right(bvec)
+        except Exception as e:
+            raise RuntimeError(f"interpolate_Q_general: no solution found during QQ interpolation: {e}")
+        Qx = R(list(sol))
 
         # Dual computation check: verify at all input points
         for x_src, yi in pts_xy:
@@ -2697,6 +2689,7 @@ def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, 
                     best_step_result = step_result
                     if m_parameter is None:
                         m_parameter = temp_m
+                    break  # score == attempt index, so the first valid geometry always wins
 
             # Ensure we found valid geometry
             assert best_step_result is not None, \

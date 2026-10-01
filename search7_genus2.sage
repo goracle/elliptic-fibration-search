@@ -1325,13 +1325,13 @@ def run_advanced_qq_diagnostics(cd, current_sections, prime_pool, singfibs, eule
     )
     print("\n=== Picard Report ===")
     print(f"Lower bound (char 0): {picard_report['lower_bound']}")
-    print(f"Upper bounds from reductions:")
-    for ub, info in picard_report['upper_bounds']:
-        print(f"  ell={info['ell']}: rho <= {ub}    (rank_lb={info['rank_lb']}, Σ={info['sum_contrib']})")
+    print(f"Lower bounds on rho(S_ell) from reductions (NOT upper bounds on rho(S)):")
+    for lb, info in picard_report['reduction_lower_bounds']:
+        print(f"  ell={info['ell']}: rho(S_ell) >= {lb}    (rank_lb={info['rank_lb']}, Σ={info['sum_contrib']})")
     if picard_report['rho'] is not None:
-        print(f"*** Concluded Picard number: ρ = {picard_report['rho']} ***")
+        print(f"*** Picard number: ρ = {picard_report['rho']}  (rigorous: {picard_report.get('rho_rigorous')}; {picard_report.get('rho_method')}) ***")
     else:
-        print("*** Picard not pinned exactly (likely off by ≤ 1). Consider the discriminant step. ***")
+        print("*** Picard number not determined: no rigorous upper bound available for chi >= 2. ***")
 
     print("\n--- Shioda-Tate Diagnostics ---")
     rank_guess, details, diag = shioda_tate_from_fiber_list(

@@ -232,11 +232,46 @@ def pooled_verdict(row):
     return "pooled: consistent with chance"
 
 
+# ---------------------------------------------------------------------------
+# Full per-(m, vector) dump for offline analysis (planted_analyze.py)
+# ---------------------------------------------------------------------------
+_DUMP_BLOCK = [0]   # increments once per call, i.e. once per fibration pass
+
+
+def dump_signal_table(path, residues, primes, trace_ms, vectors, tag='',
+                      rail_pass=None, rail_filtered=True):
+    """Append one JSON line per (traced m, vector), ALL vectors (not just top 3).
+    Fields: tag, block (fibration pass index; block 0 = the seed-x0 fibration),
+    m='num/den', v, n (#usable primes), k, present (primes where m mod p in D),
+    ps (usable primes), q (per-prime null probabilities, rail-aware)."""
+    import json
+    block = _DUMP_BLOCK[0]; _DUMP_BLOCK[0] += 1
+    with open(path, 'a') as fh:
+        for m in trace_ms:
+            num, den = int(m.numerator()), int(m.denominator())
+            for v in vectors:
+                ps, qs, sizes = vector_null_profile(residues, primes, v, den, rail_pass, rail_filtered)
+                present = [p for p, d in zip(ps, sizes)
+                           if d and (num * pow(den, -1, p)) % p in _domain(residues, p, v)]
+                fh.write(json.dumps({'tag': tag, 'block': block, 'm': f"{num}/{den}",
+                                     'v': [int(x) for x in v], 'n': len(ps), 'k': len(present),
+                                     'present': present, 'ps': ps,
+                                     'q': [round(q, 6) for q in qs]}) + "\n")
+
+
 def report_target_signal(residues, primes, trace_ms, vectors, top=3, margin=15,
                          rail_pass=None, rail_filtered=True):
     """Print, per traced m, its most significant vectors (look-elsewhere corrected)."""
     if not trace_ms:
         return
+    import os
+    _dump = os.environ.get('FIB_SIGNAL_DUMP')          # path; set per run, e.g. run_7.jsonl
+    if _dump:
+        try:
+            dump_signal_table(_dump, residues, primes, trace_ms, vectors,
+                              os.environ.get('FIB_RUN_TAG', ''), rail_pass, rail_filtered)
+        except Exception as e:
+            print(f"[signal] dump failed ({e})")
     for m in trace_ms:
         try:
             rows = m_signal_by_vector(residues, primes, m, vectors, margin, rail_pass, rail_filtered)

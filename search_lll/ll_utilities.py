@@ -17,23 +17,42 @@ USE_JULIA_LADDER = False # wth is this, i forgor
 
 def detect_fiber_collision(Delta_poly, p, debug=DEBUG):
     """
-    Detect if discriminant Delta(m) has repeated roots mod p.
-    Returns (has_collision, gcd_poly).  Raises on any failure rather than
+    Detect whether the reduction of Delta(m) mod p has a different root structure than
+    in characteristic 0 (i.e. genuine fiber collision / bad reduction of the fibration).
+
+    Delta(m) legitimately has repeated roots (additive fibers, e.g. m^10 for II*), so
+    gcd(Delta, Delta') != 1 is NOT a collision by itself.  Instead compare with the
+    characteristic-0 baseline: degree of Delta and degree of gcd(Delta, Delta') must be
+    unchanged mod p.  (Root structure can only degenerate, never improve, so any
+    difference means two fibers merged, a root escaped to infinity, or p | a multiplicity.)
+
+    Returns (has_collision, gcd_poly_mod_p).  Raises on any failure rather than
     reporting "no collision".
     """
-    from sage.all import GF, PolynomialRing, gcd
+    from sage.all import GF, PolynomialRing, gcd, QQ
+
+    coeffs_Q = [QQ(c) for c in Delta_poly.list()]
+    if not coeffs_Q or all(c == 0 for c in coeffs_Q):
+        raise ValueError("detect_fiber_collision: zero discriminant polynomial")
+    R0 = PolynomialRing(QQ, 'm')
+    D0 = R0(coeffs_Q)
+    deg0 = int(D0.degree())
+    gdeg0 = int(gcd(D0, D0.derivative()).degree())
 
     Fp = GF(p)
     R = PolynomialRing(Fp, 'm')
-
-    Delta_modp = R([int(c) % p for c in Delta_poly.list()])
+    for c in coeffs_Q:
+        if c.denominator() % p == 0:
+            raise ValueError(f"detect_fiber_collision: coefficient {c} not p-integral at p={p}")
+    Delta_modp = R([Fp(c) for c in coeffs_Q])
     dDelta = Delta_modp.derivative()
 
     g = gcd(Delta_modp, dDelta)
-    has_collision = (g.degree() > 1)
+    has_collision = (int(Delta_modp.degree()) != deg0) or (int(g.degree()) != gdeg0)
 
     if has_collision and debug:
-        print(f"⚠️  Fiber collision detected at p={p}: gcd degree {g.degree()}")
+        print(f"⚠️  Fiber collision detected at p={p}: deg Delta {Delta_modp.degree()} (char 0: {deg0}), "
+              f"gcd degree {g.degree()} (char 0: {gdeg0})")
 
     return has_collision, g
 

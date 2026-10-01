@@ -734,6 +734,9 @@ def _kronecker_prefilter_domain(p, residues_p, coeffs_genus2, shift, r_m_linear,
     if p == 2 or not _RAIL_Y_FILTER_OK or not RAIL_Y_FILTER:
         # Every class mod 2 is a square, and kronecker(a, 2) is NOT a QR test.
         return set(residues_p)
+    # coeffs may arrive as Python ints (JSON / int(c) sources); int.numerator is a
+    # property, so .numerator() below would raise "'int' object is not callable".
+    coeffs_genus2 = [QQ(c) for c in coeffs_genus2]
     survivors = set()
     for a in residues_p:
         try:
@@ -1306,6 +1309,8 @@ def _check_rational_m_candidate(m_candidate: QQ, residue_map_for_filter: dict, e
     """
     m_candidate_val_num = ZZ(m_candidate.numerator())
     m_candidate_val_den = ZZ(m_candidate.denominator())
+    # Python-int coeffs would make .numerator() fail ("'int' object is not callable")
+    coeffs_genus2 = [QQ(c) for c in coeffs_genus2]
 
     for q in extra_primes:
         # Reject if denominator divisible by filter prime
