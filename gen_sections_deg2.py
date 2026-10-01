@@ -396,6 +396,10 @@ def generate_ydeg2(n=6, seed=1, node_range=8, max_tries=2000, verbose=True):
         if os.environ.get("BASE_N8", "basechange") == "sym":     # even-h family: only rank 4 (see docstring)
             return generate_ydeg2_n8_sym(seed=seed, verbose=verbose)
         return generate_ydeg2_n8_basechange(seed=seed, verbose=verbose)
+    if n == 9:
+        import os
+        from gen_sections_twist import generate_ydeg2_n9
+        return generate_ydeg2_n9(seed=seed, verbose=verbose, scan_b=os.environ.get("BASE_N9_SCAN_B", "0") == "1")
     if n != 6:
         raise NotImplementedError("generate_ydeg2: n = 6, 7 or 8 (8 = symmetric/even family only)")
     rng = random.Random(seed)

@@ -37,6 +37,7 @@ from math import gcd
 from gen_sections import (STATS, verify, clear_denoms, poly_mul, poly_add, poly_scale, poly_eval,
                           poly_divmod, poly_trim, interpolate, sqrt_q, is_square, build_h, all_I1)
 
+LAST = {}               # side channel: data of the last generate_conic() solution (rho, kappa, e)
 _SHIFT = 256            # bit-width of one F_2 block (primes + sign bit); assert below if exceeded
 _PIDX = {}
 
@@ -190,6 +191,7 @@ def generate_conic(seed=1, verbose=True, require_i1=False, max_curves=400):
             if verbose:
                 print(f"[gen_sections_conic] rho={[str(r) for r in rho]} nodes={[str(x) for x in xs]} "
                       f"e={e} kappa={kap} after {cnt + 1} curves")
+            LAST.update(rho=rho, kappa=kap, e=e)
             return xs, a, b
     raise RuntimeError(f"generate_conic: nothing found; reasons={dict(STATS)}")
 

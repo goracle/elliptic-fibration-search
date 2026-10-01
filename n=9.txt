@@ -1,0 +1,165 @@
+➜  elliptic-fibration-search git:(main) BASE_N=9 BASE_YDEG=2 BASE_SEED=4 sage baseline_quartic.sage
+finite field = None
+SEED_INT = -724419  (random; set FIB_SEED to fix it)
+DATA_PTS_GENUS2 = [0]
+[gen_sections_twist] n=9: surface #1, case (a), new node x0=-5, max|coef|=2088025
+
+======================================================================
+BASELINE: n=9 sections, nodes x=[-5, -84/17, -22/5, -21/5, -55/17, -30/17, -4/5, -3/5, -1/17], deg_m(Y_j)=2, seed=4
+======================================================================
+h(x;m) = (-2724905250390625/5544*m^4 + 603816374515625/5544*m^2 - 1033520174375/924)*x^4 + (-13624526251953125/2772*m^4 + 2949384642090625/2772*m^2 - 1940286791125/231)*x^3 + (-84472062762109375/5544*m^4 + 18021335305109375/5544*m^2 - 6488656704925/308)*x^2 + (-13624526251953125/924*m^4 + 2879687411603125/924*m^2 - 2593546292625/154)*x - 377149515625*m^2 + 91612096875
+sections:  [(-5, 614125*m), (-84/17, 903125*m^2 + 83835), (-22/5, 2088025*m^2 - 232645), (-21/5, 2088025*m^2 - 254898), (-55/17, 903125*m^2 - 295775), (-30/17, 903125*m^2 - 301725), (-4/5, 2088025*m^2 - 308941), (-3/5, 2088025*m^2 - 309519), (-1/17, 903125*m^2 - 304190)]
+
+======================================================================
+STAGE 1: morphism to Weierstrass + buildcd (your code)
+======================================================================
+======================================================================
+BUILDCD: Constructing Fibration Data
+======================================================================
+
+======================================================================
+MINIMAL MODEL COMPUTATION
+======================================================================
+
+[Step 1] Checking for poles at m=0...
+  v_m(a4) = 0
+  v_m(a6) = 0
+No poles at m=0
+
+[Step 2] Checking for common zeros at m=0...
+No common zeros at m=0
+
+[Step 3] Building minimal Weierstrass model...
+Minimal model constructed
+  Net scaling exponent: 0 (blow-up: 0, blow-down: 0)
+======================================================================
+MINIMAL MODEL SUMMARY
+======================================================================
+Blow-up factor:   0
+Blow-down factor: 0
+Net scaling:      0
+X-coord scale:    m^0
+Y-coord scale:    m^0
+======================================================================
+SR coercion complete
+Found 6 bad primes: [2, 3, 5, 7, 11, 17]
+>>> Diagnostic: [m^24 - 6526/7225*m^22 + 4851686679/32625390625*m^20 + 33258788887116/235718447265625*m^18 - 3892081525743250401/42576644537353515625*m^16 + 7999040855165776639314/307616256782379150390625*m^14 - 241194392805767457370680439/55563186381317234039306640625*m^12 + 181189684776313520799397189648/401444021605017015933990478515625*m^10 - 84055227986786524539683305347432/2900433056096247940123081207275390625*m^8 + 1336246723232537009218671344442912/1232684048840905374552309513092041015625*m^6 - 3189752361642410349456010811532297264/151404418298884202629387415945529937744140625*m^4 + 203819961708776278613881334879154517248/1093896922209438363997324080206453800201416015625*m^2 - 953168473644761247853551263708544626688/1580681052592638435976133295898325741291046142578125] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
+
+Place analysis (finite algebraic places):
+factor g(m)                               mult   v_c4   v_c6    v_D      n   v4_min   v6_min   vD_min      Kodaira
+--------------------------------------------------------------------------------------------------------------------------
+m^24 - 6526/7225*m^22 + 4851686679/3262      1      0      0      1      1        0        0        1      24 x I1
+Infinity: v_c4 = -8, v_c6 = -12, v_D = -24 -> I0
+
+Summary of fibers (per-center):
+  I1 at m^24 - 6526/7225*m^22 + 4851686679/32625 (deg 24) contrib=0
+  I0 at inf (deg 1) contrib=0
+
+Total Euler characteristic: 24
+Sum of fiber contributions (Σ(m_v - 1)): 0
+
+  Found 2 singular fibers
+  Euler characteristic: 24
+  Sigma sum: 0
+[try_scale_out_power_of_two] Δ already nonzero mod 2; no scaling.
+2-adic scaling complete
+
+======================================================================
+GEOMETRIC VALIDATION
+======================================================================
+[validate_fibration] Discriminant is non-zero
+[validate_fibration] Discriminant: 10234071408743921243013113306733867332334423629418801245151460221904926584102213382720947265625/1400278257422263296*m^24 - 4621975779478396542000247573684790187599615820455854458536915529975885874591767787933349609375/700139128711131648*m^22 + 72471320466246228266171279279435148356852872522932480690011738943212549202144145965576171875/66679917020107776*m^20 + 120331700943600247088997191958309461766352615161809993822081721891663619317114353179931640625/116689854785188608*m^18 - 311844210176183832995202550372238242834131561767711174101432047578666242770850658416748046875/466759419140754432*m^16 + 6336184056496000596919876366581743610103597701557101208486969461462576873600482940673828125/33339958510053888*m^14 - 44425109503670206882038067945432931738366811077574396915734117201527169905602931976318359375/1400278257422263296*m^12 + 41241921857028326477891922850800537973161347448185728213113401588707827031612396240234375/12502484441270208*m^10 - 1373082323138818268880742041922823255156804684490369130439709609016548097133636474609375/6482769710288256*m^8 + 1426681626117825637771411388985352811691123565389962492311346516690909862518310546875/180076936396896*m^6 - 2640713651835740944625861685626003861993706503360263322166088296921253204345703125/17150184418752*m^4 + 1135295078387081328730542839354338761886873640134388823123912883472442626953125/833689520356*m^2 - 918552261069300263367519395858292762710820361644129981015532150268554687500/208422380089
+[validate_fibration] Effective degree: 24
+[validate_fibration] Stored Weierstrass exponent: 0
+[validate_fibration] NOTICE: Discriminant degree is 24, not 12
+[validate_fibration]         (non-minimal or different parameterization)
+======================================================================
+
+======================================================================
+BUILDCD COMPLETE
+======================================================================
+chi = 2, Sigma = 0, rank bound 10*chi-2-Sigma = 18
+
+======================================================================
+STAGE 2: sections
+======================================================================
+
+[verify_morphism] Testing 9 sample points
+[verify_morphism] All sample points verified
+
+[lll_reduce] Processing 9 sections (mode=QQ)
+[lll_reduce QQ] Computing height matrix for LLL
+
+[check_independence] Testing 9 sections (mode=QQ)
+[check_independence QQ] Computing height pairing matrix
+Using canonical height pairing (minimal model)
+  Height matrix determinant: 134217728
+  Result: independent
+[lll_reduce QQ] Clearing denominators...
+[lll_reduce QQ] Cleared with LCM = 1
+[lll_reduce QQ] Running LLL algorithm...
+[lll_reduce QQ] LLL complete, applying transformation...
+[lll_reduce QQ] Reduced basis has 9 sections
+number of sections: 9
+
+[check_independence] Testing 9 sections (mode=QQ)
+[check_independence QQ] Computing height pairing matrix
+Using canonical height pairing (minimal model)
+  Height matrix determinant: 134217728
+  Result: independent
+independent in char 0: True
+height matrix:
+ [8 0 0 0 0 0 0 0 0]
+[0 8 0 0 0 0 0 0 0]
+[0 0 8 0 0 0 0 0 0]
+[0 0 0 8 0 0 0 0 0]
+[0 0 0 0 8 0 0 0 0]
+[0 0 0 0 0 8 0 0 0]
+[0 0 0 0 0 0 8 0 0]
+[0 0 0 0 0 0 0 8 0]
+[0 0 0 0 0 0 0 0 8]
+det(H) = 134217728
+
+======================================================================
+STAGE 3: Picard analysis (patched picard.py)
+======================================================================
+Euler characteristic: 24  Sigma(m_v-1): 0
+ell candidates: (13, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61)
+[char 0] Using mw_rank = 9. Σ(m_v-1) = 0
+[char 0] ST lower bound: rho >= 11
+[skip] ell=13 unusable for independence test: No usable specializations after filtering singular/pole values for ell=13.
+[skip] ell=19 dependence witnessed in reduction; witness={'p': 43, 'relation': (6, 33, 27, 6, 3, 35, 38, 8, 0), 'm0s': [2, 4, 5, 6], 'ell': 19}
+[skip] ell=23 dependence witnessed in reduction; witness={'p': 3, 'relation': (0, 0, 0, 2, 0, 2, 0, 1, 1), 'm0s': [1, 2, 3, 4, 5, 6], 'ell': 23}
+[rank_over_fq(t)] independent reduced sections: 9
+[mod 29] sum fiber contrib = 4, rank>= 9 => rho(S_ell) >= 15   (lower bound only)
+[rank_over_fq(t)] independent reduced sections: 9
+[mod 31] sum fiber contrib = 3, rank>= 9 => rho(S_ell) >= 14   (lower bound only)
+[rank_over_fq(t)] independent reduced sections: 9
+[mod 37] sum fiber contrib = 2, rank>= 9 => rho(S_ell) >= 13   (lower bound only)
+[rank_over_fq(t)] independent reduced sections: 9
+[mod 41] sum fiber contrib = 8, rank>= 9 => rho(S_ell) >= 19   (lower bound only)
+[rank_over_fq(t)] independent reduced sections: 9
+[mod 43] sum fiber contrib = 2, rank>= 9 => rho(S_ell) >= 13   (lower bound only)
+[rank_over_fq(t)] independent reduced sections: 9
+[mod 47] sum fiber contrib = 0, rank>= 9 => rho(S_ell) >= 11   (lower bound only)
+[rank_over_fq(t)] independent reduced sections: 9
+[mod 53] sum fiber contrib = 0, rank>= 9 => rho(S_ell) >= 11   (lower bound only)
+[rank_over_fq(t)] independent reduced sections: 9
+[mod 59] sum fiber contrib = 0, rank>= 9 => rho(S_ell) >= 11   (lower bound only)
+[rank_over_fq(t)] independent reduced sections: 9
+[mod 61] sum fiber contrib = 0, rank>= 9 => rho(S_ell) >= 11   (lower bound only)
+[summary] char-0 lower bound rho >= 11; best mod-ell lower bound rho(S_ell) >= 19 at ell=41
+[collapsed fiber contribution / reduction-dependence primes] [13, 19, 23]
+[caveat] The mod-ell numbers are LOWER bounds on rho(S_ell). They give no upper bound on rho(S), so rho is NOT concluded here. A rigorous upper bound needs rho(S_ell) (Frobenius eigenvalues from point counts) and is not implemented for chi >= 2.
+
+======================================================================
+SUMMARY (generic quartic baseline)
+======================================================================
+n sections            : 9
+chi (= e/12)          : 2
+Sigma(m_v - 1)        : 0
+rho lower (char 0)    : 11   (= 2 + Sigma + n = 11)
+mod-ell lower bounds  : [11, 13, 14, 15, 19]   [lower bounds on rho(S_ell) only; NOT upper bounds on rho(S)]
+rho                   : not determined (no rigorous upper bound implemented for chi >= 2)
+skipped primes        : [13, 19, 23]
+

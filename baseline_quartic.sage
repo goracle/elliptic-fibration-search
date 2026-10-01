@@ -33,10 +33,10 @@ YDEG       = int(os.environ.get("BASE_YDEG", "1"))   # degree in m of each Y_j(m
 XNODES     = [0, 1, -1, 2, -2][:N_SECTIONS]
 GEN_ENTRIES = None   # (a_j, b_j) when the generator supplies the sections
 
-assert 1 <= N_SECTIONS <= 8, "rank of a rational elliptic surface is <= 8"
+assert 1 <= N_SECTIONS <= (9 if YDEG == 2 else 8), "rank of a rational elliptic surface is <= 8 (n=9 only via BASE_YDEG=2 twist family)"
 GEN_COEFFS = None    # [c0, c1, c2] per section when YDEG == 2 (K3, chi = 2)
 if N_SECTIONS >= 6 and YDEG == 2:
-    assert N_SECTIONS in (6, 7, 8), "BASE_YDEG=2 generator exists for n=6, 7, 8 (8 = symmetric even-h family)"
+    assert N_SECTIONS in (6, 7, 8, 9), "BASE_YDEG=2 generator exists for n=6..9 (8 = pullback family, 9 = twist-section family)"
     from gen_sections_deg2 import generate_ydeg2
     _nodes, GEN_COEFFS = generate_ydeg2(N_SECTIONS, seed=SEED)
     XNODES = [QQ(xj) for xj in _nodes]
