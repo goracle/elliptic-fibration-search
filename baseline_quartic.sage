@@ -152,6 +152,38 @@ print("independent in char 0:", independent)
 print("height matrix:\n", H)
 print("det(H) =", H.det())
 
+
+from picard_pointcount_pipeline import run_from_baseline
+
+pc_report = run_from_baseline(
+    E_curve_m=E_curve_m,
+    cd=cd,
+    h=h,
+    sections=sections,
+
+    # Use this only when your LLL basis has mixed the 8 t-even sections
+    # with the ninth one:
+    invariant_sections=None,
+
+    height_matrix=H,
+    primes=(47, 53),
+
+    # Set PC_SELFTEST_PRIME to your cheaper known test prime.
+    selftest_prime=(
+        int(os.environ["PC_SELFTEST_PRIME"])
+        if os.environ.get("PC_SELFTEST_PRIME") else None
+    ),
+
+    outdir=os.environ.get("PC_OUTDIR", "picard_pointcounts"),
+    gp_bin=os.environ.get("GP_BIN", "gp"),
+    max_k=6,
+    selftest_max_k=6,
+    gp_chunks=int(os.environ.get("PC_GP_CHUNKS", "64")),
+
+    require_branch_smooth=True,
+    require_sigma_zero=True,
+)
+
 # ---------------------------------------------------------------- Picard
 banner("STAGE 3: Picard analysis (patched picard.py)")
 singfibs = cd.singfibs

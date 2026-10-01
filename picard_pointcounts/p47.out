@@ -1,0 +1,90 @@
+  ***   Warning: new stack size = 512000000 (488.281 Mbytes).
+  ***   Warning: new maximum stack size = 8000000000 (7629.395 Mbytes).
+  ***   syntax error, unexpected end of file, expecting )-> or ',' or ')': 
+  ***   for(d=1,maxk,
+  ***               ^-
+  ***   at top-level: if(d>maxk,break)
+  ***                     ^------------
+  *** _>_: forbidden comparison t_POL , t_INT.
+  ***   at top-level: chunk_size=ceil(pref_total/64)
+  ***                            ^-------------------
+  *** ceil: incorrect type in gceil (t_SER).
+  ***   at top-level: if(chunk_size<1,chunk_size=1)
+  ***                              ^----------------
+  *** _<_: forbidden comparison t_POL , t_INT.
+  ***   syntax error, unexpected end of file, expecting )-> or ',' or ')': 
+  ***   ...0,pref_total-1,chunk_size,
+  ***                               ^-
+  ***   at top-level: hi=min(pref_total-1,lo+chunk_size-1)
+  ***                    ^---------------------------------
+  *** min: forbidden comparison t_SER , t_POL.
+[[lo, hi, d]]
+  ***   syntax error, unexpected ')', expecting end of file: );
+  ***                                                        ^--
+  ***   at top-level: pieces=parvector(#chunks,i,process_range(chunk
+  ***                        ^---------------------------------------
+  *** parvector: incorrect type in gtos [integer expected] (t_POL).
+  ***   syntax error, unexpected end of file, expecting )-> or ',' or ')': 
+  ***   for(i=1,#pieces,
+  ***                  ^-
+  ***   at top-level: deg_full+=pieces[i][2]
+  ***                                  ^-----
+  ***   incorrect type in gtos [integer expected] (t_POL).
+  ***   at top-level: deg_irr+=pieces[i][3]
+  ***                                 ^-----
+  ***   incorrect type in gtos [integer expected] (t_POL).
+  ***   at top-level: deg_rep+=pieces[i][4]
+  ***                                 ^-----
+  ***   incorrect type in gtos [integer expected] (t_POL).
+  ***   at top-level: deg_fixed+=pieces[i][5]
+  ***                                   ^-----
+  ***   incorrect type in gtos [integer expected] (t_POL).
+  ***   syntax error, unexpected ')', expecting end of file: );
+  ***                                                        ^--
+  ***   at top-level: expected=ffnbirred(p,d)
+  ***                                      ^--
+  ***   incorrect type in gtos [integer expected] (t_POL).
+  ***   syntax error, unexpected end of file, expecting )-> or ',' or ')': 
+  ***   if(deg_full!=expected,
+  ***                        ^-
+  ***   at top-level: error(Str("degree ",d," closed point count mis
+  ***                 ^----------------------------------------------
+  ***   user error: degree d closed point count mismatch: 0 != expected
+  ***   syntax error, unexpected ')', expecting end of file: );
+  ***                                                        ^--
+  ***   at top-level: degree_full_counts[d]=deg_full
+  ***                                    ^-----------
+  ***   incorrect type in gtos [integer expected] (t_POL).
+  ***   at top-level: degree_rep_counts[d]=deg_rep
+  ***                                   ^----------
+  ***   incorrect type in gtos [integer expected] (t_POL).
+  ***   syntax error, unexpected end of file, expecting )-> or ',' or ')': 
+  ***   write(outfile,
+  ***                ^-
+  ***   syntax error, unexpected ',', expecting end of file: "DEGREE ",d,
+  ***                                                                 ^---
+  ***   syntax error, unexpected ',', expecting end of file: " FULL_CLOSED "
+  ***   ,deg_full,
+  ***   ^----------
+  ***   syntax error, unexpected ',', expecting end of file: " REPS ",deg_rep,
+  ***                                                                ^---------
+  ***   syntax error, unexpected ',', expecting end of file: " IRR_CANDIDATES "
+  ***   ,deg_irr,
+  ***   ^---------
+  ***   syntax error, unexpected ',', expecting end of file: " INV_FIXED "
+  ***   ,deg_fixed,
+  ***   ^-----------
+  ***   syntax error, unexpected ',', expecting end of file: " SECONDS "
+  ***   ,getabstime()-t0);
+  ***   ^------------------
+  ***   syntax error, unexpected ')', expecting end of file: );
+  ***                                                        ^--
+18
+PRIME 47
+MODEL_CHI 2
+A_FIBRE_TRACES [8, -30, -616, -3518, 808, 171810]
+CHI_SUMS [-8, 30, 616, 3518, -808, -171810]
+SURFACE_COUNTS [2296, 4884130, 10779423592, 23811296424642, 52599132694519256, 116191483130506837090]
+H2_TRACES [86, 4448, 208262, 9762880, 458689206, 21558258848]
+TWIST_POWER_SUMS [-854, -39732, -1868198, -87830740, -4128210934, -194026047732]
+END

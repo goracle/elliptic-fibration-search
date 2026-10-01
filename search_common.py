@@ -464,6 +464,7 @@ class CurveDataExt(NamedTuple):
     SR_phi_x: object
     SR_m: object
     base_field: object
+    chi: int
 
 # --- START: Modular Reduction Helpers (centralized from picard.py) ---
 
@@ -2149,6 +2150,12 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
 
     sys.stdout.flush()
 
+    # calculate chi
+    fibers = singfibs.get('fibers', [])
+    euler_total = singfibs.get('euler_characteristic', None)
+    if euler_total is None:
+        raise ValueError("Could not determine total Euler characteristic from find_singular_fibers.")
+    chi = QQ(euler_total) / QQ(12)
     # ========================================================================
     # BUILD E_RHS (for compatibility)
     # ========================================================================
@@ -2188,7 +2195,8 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
         SR_a6=SR_a6,
         SR_phi_x=SR_phi_x,
         SR_m=SR_m,
-        base_field=base_field if ff_mode else None
+        base_field=base_field if ff_mode else None,
+        chi=chi
     )
 
     # ========================================================================
