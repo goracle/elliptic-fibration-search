@@ -281,12 +281,123 @@ def generate_ydeg2_n7(seed=1, node_range=8, max_tries=3000, verbose=True):
 
 
 
+# ----------------------------------------------------------------------------- n = 8 (symmetric nodes)
+def generate_ydeg2_n8_sym(seed=1, node_range=14, max_tries=4000, verbose=True):
+    """
+    n = 8 with SYMMETRIC nodes {+-a_1, .., +-a_4} and Y_{-a_k}(m) = Y_{a_k}(m).
+
+    Then h(-x) and h(x) agree at all 8 nodes, so h is EVEN: h = H(z; m), z = x^2, H quadratic in z.
+    The 8 value conditions collapse to ONE form on Q^4 in the z-nodes z_k = a_k^2:
+            F(Y) = sum_k W_k Y_k^2,   W_k = 1 / prod_{i != k} (z_k - z_i)     (zero iff deg_z H <= 2).
+    Y(m) = y0 + y1 m + y2 m^2 with F(Y(m)) = 0 for all m is exactly the n = 6 construction
+    (_solve_once) run on the 4 nodes z_k; y_k are shared by the pair (+a_k, -a_k).
+
+    CAVEAT (important for a *baseline*): this family is NOT generic.  h even means the surface carries the
+    extra involution x -> -x, and it is a quadratic base change of a simpler fibration.  Ranks / rho may
+    exceed the generic count; compare with n = 7 only with that in mind.
+    """
+    rng = random.Random(seed)
+    pool = list(range(1, node_range + 1))
+    for it in range(max_tries):
+        a = sorted(rng.sample(pool, 4))
+        z = [Fr(t * t) for t in a]
+        res = _solve_once(z, rng)
+        if verbose and it % 50 == 49:
+            print(f"[gen_sections_deg2] n=8 sym: {it + 1} node sets tried, reasons={dict(STATS)}")
+        if res is None:
+            continue
+        y0, y1, y2 = clear_denoms(list(res))
+        per = [[y0[k], y1[k], y2[k]] for k in range(4)]
+        if any(all(c == 0 for c in cj) for cj in per):
+            STATS["deg2_zero_section"] += 1
+            continue
+        if any(cj[1] == 0 and cj[2] == 0 for cj in per):
+            STATS["deg2_constant_pair"] += 1
+            continue
+        pairs = sorted([(Fr(-t), per[k]) for k, t in enumerate(a)] + [(Fr(t), per[k]) for k, t in enumerate(a)],
+                       key=lambda e: e[0])
+        nodes = [e[0] for e in pairs]
+        coeffs = [list(e[1]) for e in pairs]
+        if verify_ydeg2(nodes, coeffs):
+            if verbose:
+                print(f"[gen_sections_deg2] n=8 sym: a={a} found after {it + 1} node sets")
+            return nodes, coeffs
+        STATS["deg2_verify_failed"] += 1
+    raise RuntimeError(f"generate_ydeg2(8): nothing in {max_tries} tries; reasons={dict(STATS)}")
+
+
+def has_x_involution(nodes, coeffs):
+    """True iff h(c - x; m) = h(x; m) for some constant c (translation-reflection symmetry of the quartic).
+    Such an involution has fixed points on the generic fibre, acts as -1 there, and makes P and its mirror
+    image dependent -- the same rank-halving seen in the even (c = 0) family."""
+    n = len(nodes)
+    sq = [[sum(cj[i] * cj[k - i] for i in range(3) if 0 <= k - i <= 2) for cj in coeffs] for k in range(5)]
+    hs = [interpolate(nodes, sq[k]) for k in range(5)]
+    pts = [Fr(t) for t in (0, 1, 2, 3, 5, 7)]
+    for c in sorted({Fr(nodes[i]) + Fr(nodes[j]) for i in range(n) for j in range(i, n)}):
+        if all(poly_eval(hk, c - x) == poly_eval(hk, x) for hk in hs for x in pts):
+            return True
+    return False
+
+
+# ----------------------------------------------------------------------------- n = 8 (base change)
+def generate_ydeg2_n8_basechange(seed=1, verbose=True):
+    """
+    n = 8, NON-symmetric nodes, x_j constant, Y_j(t) of degree <= 2 in t, by QUADRATIC BASE CHANGE of a
+    rank-8 rational elliptic surface.
+
+    gen_sections.generate(8, method='evenodd') gives h(x; m) = u(x) m^2 + v(x) (chi = 1) with 8 sections
+    (x_j, a_j m + b_j).  Substituting m = phi(t) = c2 t^2 + c1 t + c0 gives
+            h(x; phi(t)),      Y_j(t) = a_j phi(t) + b_j = [a_j c0 + b_j,  a_j c1,  a_j c2],
+    a K3 (chi = 2) with the same 8 nodes.  Pullback of sections is injective on Mordell-Weil, so the 8
+    sections are independent iff they were on the rational surface.  Everything is verified exactly.
+
+    CAVEAT: this family is NOT generic.  The K3 is a degree-4 base change of y^2 = u nu + v
+    (nu = phi(t)^2), so it has extra automorphisms and rho may be larger than 2 + Sigma + 8.
+    Sections at the four 'alpha' nodes are constant in t.
+    """
+    from gen_sections import generate
+    import os
+    rng = random.Random(seed)
+    use_conic = os.environ.get("BASE_N8_SRC", "conic") == "conic"      # conic: cross term B != 0 (gen_sections_conic.py)
+    for k in range(200):                 # skip rational surfaces with an x-involution (they give rank 4, not 8)
+        if use_conic:
+            from gen_sections_conic import generate_conic
+            nodes, a, b = generate_conic(seed + k, verbose=False)
+        else:
+            nodes, a, b = generate(8, seed=seed + k, method="evenodd", verbose=False)
+        if not has_x_involution([Fr(x) for x in nodes], [[Fr(bj), Fr(aj), Fr(0)] for aj, bj in zip(a, b)]):
+            break
+        STATS["x_involution_rejected"] += 1
+    else:
+        raise RuntimeError("generate_ydeg2(8, basechange): every evenodd solution had an x-involution")
+    for _ in range(100):
+        c2 = rng.choice([1, 2, 3, 5, 6, -1, -2, -3])
+        c1 = rng.choice([1, 2, 3, -1, -2, -3])
+        c0 = rng.randint(-3, 3)
+        coeffs = [[Fr(aj * c0 + bj), Fr(aj * c1), Fr(aj * c2)] for aj, bj in zip(a, b)]
+        if any(all(c == 0 for c in cj) for cj in coeffs):
+            continue
+        if not verify_ydeg2([Fr(x) for x in nodes], coeffs):
+            STATS["deg2_verify_failed"] += 1
+            continue
+        if verbose:
+            print(f"[gen_sections_deg2] n=8 basechange: phi(t) = {c2} t^2 + {c1} t + {c0}")
+        return [Fr(x) for x in nodes], coeffs
+    raise RuntimeError(f"generate_ydeg2(8, basechange): no usable phi; reasons={dict(STATS)}")
+
+
 def generate_ydeg2(n=6, seed=1, node_range=8, max_tries=2000, verbose=True):
     """Return (nodes, coeffs): coeffs[j] = [c0, c1, c2], Y_j(m) = c0 + c1 m + c2 m^2."""
     if n == 7:
         return generate_ydeg2_n7(seed=seed, node_range=node_range, verbose=verbose)
+    if n == 8:
+        import os
+        if os.environ.get("BASE_N8", "basechange") == "sym":     # even-h family: only rank 4 (see docstring)
+            return generate_ydeg2_n8_sym(seed=seed, verbose=verbose)
+        return generate_ydeg2_n8_basechange(seed=seed, verbose=verbose)
     if n != 6:
-        raise NotImplementedError("generate_ydeg2: n = 6 or 7 only")
+        raise NotImplementedError("generate_ydeg2: n = 6, 7 or 8 (8 = symmetric/even family only)")
     rng = random.Random(seed)
     pool = list(range(-node_range, node_range + 1))
     for it in range(max_tries):

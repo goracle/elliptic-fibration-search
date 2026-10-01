@@ -36,7 +36,7 @@ GEN_ENTRIES = None   # (a_j, b_j) when the generator supplies the sections
 assert 1 <= N_SECTIONS <= 8, "rank of a rational elliptic surface is <= 8"
 GEN_COEFFS = None    # [c0, c1, c2] per section when YDEG == 2 (K3, chi = 2)
 if N_SECTIONS >= 6 and YDEG == 2:
-    assert N_SECTIONS in (6, 7), "BASE_YDEG=2 generator exists for n=6 and n=7 only"
+    assert N_SECTIONS in (6, 7, 8), "BASE_YDEG=2 generator exists for n=6, 7, 8 (8 = symmetric even-h family)"
     from gen_sections_deg2 import generate_ydeg2
     _nodes, GEN_COEFFS = generate_ydeg2(N_SECTIONS, seed=SEED)
     XNODES = [QQ(xj) for xj in _nodes]

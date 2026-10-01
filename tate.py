@@ -675,14 +675,77 @@ def local_pairing_contribution(P, Q, fiber_data, curve_data, var_sym):
 
     return 0
 
+def _local_self_contribution_In_irrational(R, fiber_data, curve_data, n):
+    """
+    I_n (n >= 2) at a place g(m) = 0 of degree d > 1 (g irreducible over QQ, fibre over each of its d
+    geometric roots).  A section over QQ(m) has the same component index at Galois-conjugate roots, so
+        contr_total = d * i (n - i) / n,
+    with i computed exactly as in the rational case but with g-adic valuations instead of (m - c)-adic:
+      * x(R) has a pole at g        -> R meets O, identity component, i = 0
+      * x(R) != x0 mod g            -> misses the node, i = 0        (x0 = -3 a6 / (2 a4))
+      * otherwise s = 2 v_g(y);  i = s/2 if s < n else floor(n/2).
+    """
+    try:
+        if R.is_zero():
+            return QQ(0)
+    except Exception:
+        pass
+    g = fiber_data.get('factor')
+    if g is None:
+        raise NotImplementedError(f"local_self_contribution: I_{n} at irrational place without 'factor' in fibre data")
+    d = int(fiber_data.get('degree') or g.degree())
+    ainv = curve_data.E_weier.a_invariants()
+    assert ainv[0] == 0 and ainv[1] == 0 and ainv[2] == 0, \
+        f"local_self_contribution: expects short Weierstrass y^2=x^3+a4x+a6, got a-invariants {ainv}"
+    a4, a6 = ainv[3], ainv[4]
+    Pm = R[0].numerator().parent()
+    gg = Pm(g)
+
+    def divides(f):                          # g | f  for f in Pm
+        return (f % gg) == 0
+
+    def vg(f):                               # g-adic valuation of a nonzero rational function
+        num, den = Pm(f.numerator()), Pm(f.denominator())
+        v = 0
+        while divides(num):
+            num = num // gg; v += 1
+        while divides(den):
+            den = den // gg; v -= 1
+        return v
+
+    assert not divides(Pm(a4.denominator())) and not divides(Pm(a6.denominator())), "a4/a6 have a pole at g"
+    assert divides(Pm((4 * a4**3 + 27 * a6**2).numerator())), f"g={g} does not divide the discriminant of the minimal model"
+    assert not divides(Pm(a4.numerator())), f"g={g}: a4 = 0 mod g, so this is not an I_n fibre of the minimal model"
+    x_aff = R[0] / R[2]
+    if divides(Pm(x_aff.denominator())):     # R meets O
+        return QQ(0)
+    x0 = -3 * a6 / (2 * a4)
+    delta = x_aff - x0
+    if delta != 0 and not divides(Pm(delta.numerator())):
+        return QQ(0)                         # misses the node
+    y_aff = R[1] / R[2]
+    if y_aff == 0:
+        i = n // 2
+    else:
+        s_val = 2 * vg(y_aff)
+        if s_val < n:
+            assert s_val % 2 == 0 and s_val > 0, \
+                f"I_{n} at g={g}: section through node with v(y^2)={s_val}; unexpected"
+            i = s_val // 2
+        else:
+            i = n // 2
+    return QQ(d) * QQ(i) * (n - i) / n
+
+
 def local_self_contribution(R, fiber_data, curve_data, var_sym):
     """
     contr_v(R,R): local correction to the Neron-Tate height of the section R at one fiber,
         h(R) = 2*chi + 2*(R.O) - sum_v contr_v(R,R).
     Only the diagonal is needed (the off-diagonal pairing is obtained from h(P+Q)-h(P)-h(Q)).
 
-    IMPLEMENTED FOR I_n WITH n <= 2 ONLY (raises NotImplementedError otherwise, deliberately):
-      I_2 : contr = 1/2 iff R reduces to the NODE of the Weierstrass fiber, else 0.
+    IMPLEMENTED FOR I_n (any n >= 2, rational center), I_0, I_1 and III:
+      I_n : contr = i(n-i)/n where i is the component hit; i = 0 unless R reduces to the NODE of the
+            Weierstrass fiber, then i = v(y^2)/2 if v(y^2) < n else floor(n/2)  (I_2: 1/2 at the node).
     For y^2 = x^3 + a4 x + a6 with v_c(Delta) = 2, a4(c) != 0, the node is at y = 0,
     x0 = -3 a6(c) / (2 a4(c)).  A section meeting the zero section (pole of x) is on the
     identity component.
@@ -720,12 +783,11 @@ def local_self_contribution(R, fiber_data, curve_data, var_sym):
         if fiber_data.get('type') == 'additive':
             raise NotImplementedError(f"local_self_contribution: additive fiber {symbol} not implemented")
         return QQ(0)
-    if n != 2:
-        raise NotImplementedError(f"local_self_contribution: I_{n} not implemented (only I_2); "
-                                  f"component index needs more than the x-valuation")
+    if fiber_data.get('root_type') == 'irrational':
+        return _local_self_contribution_In_irrational(R, fiber_data, curve_data, n)
     if fiber_data.get('root_type') != 'rational':
-        raise NotImplementedError(f"local_self_contribution: I_2 at non-rational place "
-                                  f"{fiber_data.get('r')} not implemented")
+        raise NotImplementedError(f"local_self_contribution: I_{n} at place of type "
+                                  f"{fiber_data.get('root_type')} ({fiber_data.get('r')}) not implemented")
     try:
         if R.is_zero():
             return QQ(0)
@@ -741,11 +803,32 @@ def local_self_contribution(R, fiber_data, curve_data, var_sym):
     a4c = QQ(ainv[3](c)); a6c = QQ(ainv[4](c))
     assert 4*a4c**3 + 27*a6c**2 == 0, f"m={c} is not a root of the discriminant of the minimal model"
     assert a4c != 0, f"m={c}: a4(c)=0 so this is not an I_n fiber of the minimal model"
-    x0 = -3*a6c / (2*a4c)
+    x0 = -3*a6c / (2*a4c)                    # the node of the Weierstrass fiber is (x0, 0)
     x_aff = R[0] / R[2]
     if x_aff.denominator()(c) == 0:          # R meets O  => identity component
         return QQ(0)
-    return QQ(1)/2 if x_aff(c) == x0 else QQ(0)
+    if x_aff(c) != x0:                       # misses the node (incl. the smooth 2-torsion point (x1,0))
+        return QQ(0)
+    # R passes through the node.  Write y^2 = (x-r1)(x-r2)(x-r3) with v(r1-r2) = n/2.  With
+    # a = v(x-r1): a < n/2 gives v(x-r2) = a, so s := v(y^2) = 2a and R is on component i = a;
+    # a >= n/2 gives s >= n and R is on the middle component(s) i = floor(n/2).
+    # Hence  i = s/2 if s < n  else  floor(n/2),   contr = i (n - i) / n.   (Valid for split and
+    # non-split I_n: contr only depends on the geometric component.)
+    y_aff = R[1] / R[2]
+    if y_aff == 0:
+        i = n // 2
+    else:
+        num = y_aff.numerator(); den = y_aff.denominator()
+        Pm = num.parent()
+        vy = Pm(num(Pm.gen() + c)).valuation() - Pm(den(Pm.gen() + c)).valuation()
+        s_val = 2 * vy
+        if s_val < n:
+            assert s_val % 2 == 0 and s_val > 0, \
+                f"I_{n} at m={c}: section through node with v(y^2)={s_val}; unexpected"
+            i = s_val // 2
+        else:
+            i = n // 2
+    return QQ(i) * (n - i) / n
 
 def validate_tates_algorithm():
     """
